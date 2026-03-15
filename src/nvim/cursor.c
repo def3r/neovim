@@ -324,6 +324,7 @@ void check_cursor_lnum(win_T *win)
     }
     if (buf != NULL) {
       win->w_buffer = buf;
+      win->w_s = &buf->b_s;
       if (win == curwin) {
         curbuf = buf;
       }

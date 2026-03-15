@@ -628,17 +628,39 @@ int update_screen(void)
     // buffer.  Each buffer must only be done once.
     update_window_hl(wp, type >= UPD_NOT_VALID || hl_changed);
 
-    buf_T *buf = wp->w_buffer;
-    if (buf->b_mod_set) {
-      if (buf->b_mod_tick_syn < display_tick
-          && syntax_present(wp)) {
-        syn_stack_apply_changes(buf);
-        buf->b_mod_tick_syn = display_tick;
-      }
+    if (win_has_segments(wp)) {
+      synblock_T *saved_winsyn = wp->w_s;
+      for (size_t i = 0; i < wp->w_segment_count; i++) {
+        buf_T *buf = wp->w_segments[i].ws_buf;
+        if (buf == NULL || !buf->b_mod_set) {
+          continue;
+        }
 
-      if (buf->b_mod_tick_decor < display_tick) {
-        decor_providers_invoke_buf(buf);
-        buf->b_mod_tick_decor = display_tick;
+        wp->w_s = &buf->b_s;
+        if (buf->b_mod_tick_syn < display_tick && syntax_present(wp)) {
+          syn_stack_apply_changes(buf);
+          buf->b_mod_tick_syn = display_tick;
+        }
+
+        if (buf->b_mod_tick_decor < display_tick) {
+          decor_providers_invoke_buf(buf);
+          buf->b_mod_tick_decor = display_tick;
+        }
+      }
+      wp->w_s = saved_winsyn;
+    } else {
+      buf_T *buf = wp->w_buffer;
+      if (buf->b_mod_set) {
+        if (buf->b_mod_tick_syn < display_tick
+            && syntax_present(wp)) {
+          syn_stack_apply_changes(buf);
+          buf->b_mod_tick_syn = display_tick;
+        }
+
+        if (buf->b_mod_tick_decor < display_tick) {
+          decor_providers_invoke_buf(buf);
+          buf->b_mod_tick_decor = display_tick;
+        }
       }
     }
   }
@@ -701,7 +723,16 @@ int update_screen(void)
   // Reset b_mod_set.  Going through all windows is probably faster than going
   // through all buffers (there could be many buffers).
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-    wp->w_buffer->b_mod_set = false;
+    if (win_has_segments(wp)) {
+      for (size_t i = 0; i < wp->w_segment_count; i++) {
+        buf_T *buf = wp->w_segments[i].ws_buf;
+        if (buf != NULL) {
+          buf->b_mod_set = false;
+        }
+      }
+    } else {
+      wp->w_buffer->b_mod_set = false;
+    }
   }
 
   updating_screen = false;
@@ -1384,6 +1415,7 @@ static void win_update_multibuf(win_T *wp)
 {
   const linenr_T total_lnum = MAX(win_segment_total_lnum(wp), 1);
   const linenr_T cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total_lnum);
+  buf_T *provider_buf = NULL;
 
   wp->w_topline = MIN(MAX(wp->w_topline, 1), total_lnum);
   wp->w_cursorline = cursor_abs_lnum;
@@ -1397,8 +1429,17 @@ static void win_update_multibuf(win_T *wp)
   while (row < wp->w_view_height && lnum <= total_lnum) {
     int srow = row;
     buf_T *segment_buf = NULL;
+    linenr_T segment_lnum = 0;
     if (win_resolve_segment_lnum(wp, lnum, &segment_buf, NULL, NULL)) {
       wp->w_buffer = segment_buf;
+      wp->w_s = &segment_buf->b_s;
+      if (segment_buf != provider_buf) {
+        provider_buf = segment_buf;
+        decor_redraw_reset(wp, &decor_state);
+        (void)win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, NULL);
+        decor_providers_invoke_win_buf(wp, segment_buf, segment_lnum,
+                                       segment_buf->b_ml.ml_line_count);
+      }
     }
     row = win_line(wp, lnum, srow, wp->w_view_height, 0, false, &zero_spv, zero_foldinfo);
 

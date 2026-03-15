@@ -106,8 +106,10 @@ static int multibuf_plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *n
   }
 
   buf_T *saved_winbuf = wp->w_buffer;
+  synblock_T *saved_winsyn = wp->w_s;
   buf_T *saved_curbuf = curbuf;
   wp->w_buffer = buf;
+  wp->w_s = &buf->b_s;
   if (wp == curwin) {
     curbuf = buf;
   }
@@ -122,6 +124,7 @@ static int multibuf_plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *n
   }
 
   wp->w_buffer = saved_winbuf;
+  wp->w_s = saved_winsyn;
   if (wp == curwin) {
     curbuf = saved_curbuf;
   }
@@ -144,6 +147,28 @@ static int multibuf_rows_from_topline(win_T *wp, linenr_T target_lnum)
   }
 
   return row;
+}
+
+static linenr_T multibuf_topline_for_cursor(win_T *wp, linenr_T cursor_abs_lnum)
+{
+  if (wp->w_view_height <= 0) {
+    return cursor_abs_lnum;
+  }
+
+  linenr_T top = cursor_abs_lnum;
+  int rows_above = 0;
+
+  while (top > 1) {
+    linenr_T prev = top - 1;
+    int n = multibuf_plines_correct_topline(wp, prev, NULL, true, NULL);
+    if (rows_above + n > wp->w_view_height - 1) {
+      break;
+    }
+    rows_above += n;
+    top = prev;
+  }
+
+  return top;
 }
 
 // Compute wp->w_botline for the current wp->w_topline.  Can be called after
@@ -358,12 +383,9 @@ void update_topline(win_T *wp)
       wp->w_topline = cursor_abs_lnum;
     }
 
-    while (wp->w_view_height > 0
-           && multibuf_rows_from_topline(wp, cursor_abs_lnum) >= wp->w_view_height
-           && wp->w_topline < cursor_abs_lnum) {
-      linenr_T next = wp->w_topline;
-      (void)multibuf_plines_correct_topline(wp, wp->w_topline, &next, true, NULL);
-      wp->w_topline = next + 1;
+    if (wp->w_view_height > 0
+        && multibuf_rows_from_topline(wp, cursor_abs_lnum) >= wp->w_view_height) {
+      wp->w_topline = multibuf_topline_for_cursor(wp, cursor_abs_lnum);
     }
 
     wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
@@ -703,6 +725,21 @@ void changed_window_setting_all(void)
 // Set wp->w_topline to a certain number.
 void set_topline(win_T *wp, linenr_T lnum)
 {
+  if (win_has_segments(wp)) {
+    linenr_T prev_topline = wp->w_topline;
+    linenr_T total = MAX(win_segment_total_lnum(wp), 1);
+
+    wp->w_topline = MIN(MAX(lnum, 1), total);
+    wp->w_topline_was_set = true;
+    if (wp->w_topline != prev_topline) {
+      wp->w_topfill = 0;
+    }
+
+    wp->w_valid &= ~(VALID_WROW | VALID_CROW | VALID_BOTLINE | VALID_TOPLINE);
+    redraw_later(wp, UPD_VALID);
+    return;
+  }
+
   linenr_T prev_topline = wp->w_topline;
 
   // go to first of folded lines
@@ -2637,6 +2674,52 @@ static bool scroll_with_sms(Direction dir, int count, int *curscount)
 /// @return  FAIL for failure, OK otherwise.
 int pagescroll(Direction dir, int count, bool half)
 {
+  if (win_has_segments(curwin)) {
+    bool did_move = false;
+    linenr_T total = MAX(win_segment_total_lnum(curwin), 1);
+    linenr_T prev_abs = win_cursor_abs_lnum(curwin);
+    colnr_T prev_col = curwin->w_cursor.col;
+    colnr_T prev_curswant = curwin->w_curswant;
+
+    int move_count;
+    if (half) {
+      if (count) {
+        curwin->w_p_scr = MIN(curwin->w_view_height, count);
+      }
+      move_count = MIN(curwin->w_view_height, (int)curwin->w_p_scr);
+    } else {
+      move_count = count * ((ONE_WINDOW && p_window > 0 && p_window < Rows - 1)
+                            ? MAX(1, (int)p_window - 2) : get_scroll_overlap(dir));
+    }
+
+    linenr_T next_abs = prev_abs;
+    if (dir == FORWARD) {
+      next_abs = MIN(total, prev_abs + move_count);
+    } else {
+      next_abs = MAX((linenr_T)1, prev_abs - move_count);
+    }
+
+    if (next_abs != prev_abs) {
+      did_move = win_multibuf_set_cursor_pos(curwin, next_abs);
+      if (did_move) {
+        curwin->w_cursor.col = prev_col;
+        curwin->w_curswant = prev_curswant;
+        coladvance(curwin, curwin->w_curswant);
+        update_topline(curwin);
+      }
+    }
+
+    did_move = did_move || prev_col != curwin->w_cursor.col || prev_abs != win_cursor_abs_lnum(curwin);
+
+    if (!did_move) {
+      beep_flush();
+    } else if (!curwin->w_p_sms) {
+      beginline(BL_SOL | BL_FIX);
+    }
+
+    return did_move ? OK : FAIL;
+  }
+
   bool did_move = false;
   int buflen = curbuf->b_ml.ml_line_count;
   colnr_T prev_col = curwin->w_cursor.col;

@@ -5541,6 +5541,7 @@ bool win_multibuf_set_buffer_for_lnum(win_T *wp, linenr_T lnum, linenr_T *buf_ln
   }
 
   wp->w_buffer = buf;
+  wp->w_s = &buf->b_s;
   if (wp == curwin) {
     curbuf = buf;
   }
@@ -5566,6 +5567,7 @@ bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum)
   wp->w_cursor_seg = seg_idx;
   wp->w_cursor.lnum = local_lnum;
   wp->w_buffer = buf;
+  wp->w_s = &buf->b_s;
   if (wp == curwin) {
     curbuf = buf;
   }

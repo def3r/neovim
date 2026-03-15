@@ -1063,12 +1063,14 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
   const linenr_T logical_lnum = lnum;
   const linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
   buf_T *saved_winbuf = wp->w_buffer;
+  synblock_T *saved_winsyn = wp->w_s;
   buf_T *saved_curbuf = curbuf;
   if (win_has_segments(wp)) {
     buf_T *segment_buf = NULL;
     linenr_T segment_lnum = 0;
     if (win_resolve_segment_lnum(wp, logical_lnum, &segment_buf, &segment_lnum, NULL)) {
       wp->w_buffer = segment_buf;
+      wp->w_s = &segment_buf->b_s;
       if (wp == curwin) {
         curbuf = segment_buf;
       }
@@ -3251,6 +3253,7 @@ end_check:
   kv_destroy(virt_lines);
   xfree(foldtext_free);
   wp->w_buffer = saved_winbuf;
+  wp->w_s = saved_winsyn;
   if (wp == curwin) {
     curbuf = saved_curbuf;
   }
