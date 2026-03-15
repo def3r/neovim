@@ -26,6 +26,7 @@
 #include "nvim/state_defs.h"
 #include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
+#include "nvim/window.h"
 
 #include "cursor.c.generated.h"
 
@@ -311,6 +312,25 @@ void check_pos(buf_T *buf, pos_T *pos)
 /// Make sure win->w_cursor.lnum is valid.
 void check_cursor_lnum(win_T *win)
 {
+  if (win_has_segments(win)) {
+    size_t seg_idx = MIN(win->w_cursor_seg, win->w_segment_count - 1);
+    buf_T *buf = win->w_segments[seg_idx].ws_buf;
+    linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
+    if (win->w_cursor.lnum > line_count) {
+      win->w_cursor.lnum = line_count;
+    }
+    if (win->w_cursor.lnum <= 0) {
+      win->w_cursor.lnum = 1;
+    }
+    if (buf != NULL) {
+      win->w_buffer = buf;
+      if (win == curwin) {
+        curbuf = buf;
+      }
+    }
+    return;
+  }
+
   buf_T *buf = win->w_buffer;
   if (win->w_cursor.lnum > buf->b_ml.ml_line_count) {
     // If there is a closed fold at the end of the file, put the cursor in
@@ -380,6 +400,7 @@ void check_cursor_col(win_T *win)
       win->w_cursor.coladd = 0;
     }
   }
+
 }
 
 /// Make sure curwin->w_cursor in on a valid character
@@ -393,6 +414,26 @@ void check_cursor(win_T *wp)
 /// Can be called when in Visual mode and a change has been made.
 void check_visual_pos(void)
 {
+  if (win_has_segments(curwin)) {
+    size_t seg_idx = MIN(curwin->w_visual_seg, curwin->w_segment_count - 1);
+    buf_T *buf = curwin->w_segments[seg_idx].ws_buf;
+    linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
+
+    if (VIsual.lnum > line_count) {
+      VIsual.lnum = line_count;
+      VIsual.col = 0;
+      VIsual.coladd = 0;
+    } else {
+      int len = buf == NULL ? 0 : ml_get_buf_len(buf, VIsual.lnum);
+
+      if (VIsual.col > len) {
+        VIsual.col = len;
+        VIsual.coladd = 0;
+      }
+    }
+    return;
+  }
+
   if (VIsual.lnum > curbuf->b_ml.ml_line_count) {
     VIsual.lnum = curbuf->b_ml.ml_line_count;
     VIsual.col = 0;

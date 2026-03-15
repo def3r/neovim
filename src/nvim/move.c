@@ -90,10 +90,109 @@ int plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *nextp, bool limit
   return n;
 }
 
+static int multibuf_plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *nextp,
+                                           bool limit_winheight, bool *foldedp)
+{
+  buf_T *buf = NULL;
+  linenr_T local_lnum = 0;
+  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, NULL) || buf == NULL) {
+    if (nextp != NULL) {
+      *nextp = lnum;
+    }
+    if (foldedp != NULL) {
+      *foldedp = false;
+    }
+    return 1;
+  }
+
+  buf_T *saved_winbuf = wp->w_buffer;
+  buf_T *saved_curbuf = curbuf;
+  wp->w_buffer = buf;
+  if (wp == curwin) {
+    curbuf = buf;
+  }
+
+  linenr_T last_local = local_lnum;
+  int n = plines_win_full(wp, local_lnum, &last_local, foldedp, true, false);
+  if (lnum == wp->w_topline) {
+    n -= adjust_plines_for_skipcol(wp);
+  }
+  if (limit_winheight && n > wp->w_view_height) {
+    n = wp->w_view_height;
+  }
+
+  wp->w_buffer = saved_winbuf;
+  if (wp == curwin) {
+    curbuf = saved_curbuf;
+  }
+
+  if (nextp != NULL) {
+    *nextp = lnum + (last_local - local_lnum);
+  }
+  return MAX(n, 1);
+}
+
+static int multibuf_rows_from_topline(win_T *wp, linenr_T target_lnum)
+{
+  int row = 0;
+  linenr_T lnum = wp->w_topline;
+
+  while (lnum < target_lnum && row < wp->w_view_height) {
+    linenr_T last = lnum;
+    row += multibuf_plines_correct_topline(wp, lnum, &last, true, NULL);
+    lnum = last + 1;
+  }
+
+  return row;
+}
+
 // Compute wp->w_botline for the current wp->w_topline.  Can be called after
 // wp->w_topline changed.
 static void comp_botline(win_T *wp)
 {
+  if (win_has_segments(wp)) {
+    linenr_T total = MAX(win_segment_total_lnum(wp), 1);
+    linenr_T cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total);
+    linenr_T lnum;
+    int done;
+
+    wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
+
+    check_cursor_moved(wp);
+    if (wp->w_valid & VALID_CROW) {
+      lnum = cursor_abs_lnum;
+      done = wp->w_cline_row;
+    } else {
+      lnum = wp->w_topline;
+      done = 0;
+    }
+
+    for (; lnum <= total; lnum++) {
+      linenr_T last = lnum;
+      bool folded = false;
+      int n = multibuf_plines_correct_topline(wp, lnum, &last, true, &folded);
+      if (lnum <= cursor_abs_lnum && last >= cursor_abs_lnum) {
+        wp->w_cline_row = done;
+        wp->w_cline_height = n;
+        wp->w_cline_folded = folded;
+        redraw_for_cursorline(wp);
+        wp->w_valid |= (VALID_CROW | VALID_CHEIGHT);
+      }
+      if (done + n > wp->w_view_height) {
+        break;
+      }
+      done += n;
+      lnum = last;
+    }
+
+    wp->w_botline = lnum;
+    wp->w_valid |= (VALID_BOTLINE | VALID_BOTLINE_AP);
+    wp->w_viewport_invalid = true;
+    set_empty_rows(wp, done);
+    win_check_anchored_floats(wp);
+    return;
+  }
+
   linenr_T lnum;
   int done;
 
@@ -247,6 +346,39 @@ static void reset_skipcol(win_T *wp)
 // Update wp->w_topline to move the cursor onto the screen.
 void update_topline(win_T *wp)
 {
+  if (win_has_segments(wp)) {
+    linenr_T total = MAX(win_segment_total_lnum(wp), 1);
+    linenr_T old_topline = wp->w_topline;
+    linenr_T cursor_abs_lnum;
+
+    check_cursor_lnum(wp);
+    cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total);
+    wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
+    if (cursor_abs_lnum < wp->w_topline) {
+      wp->w_topline = cursor_abs_lnum;
+    }
+
+    while (wp->w_view_height > 0
+           && multibuf_rows_from_topline(wp, cursor_abs_lnum) >= wp->w_view_height
+           && wp->w_topline < cursor_abs_lnum) {
+      linenr_T next = wp->w_topline;
+      (void)multibuf_plines_correct_topline(wp, wp->w_topline, &next, true, NULL);
+      wp->w_topline = next + 1;
+    }
+
+    wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
+    wp->w_topfill = 0;
+    wp->w_valid |= VALID_TOPLINE;
+    wp->w_valid &= ~(VALID_BOTLINE | VALID_BOTLINE_AP | VALID_CROW | VALID_CHEIGHT);
+    wp->w_viewport_invalid = true;
+    win_check_anchored_floats(wp);
+
+    if (wp->w_topline != old_topline) {
+      redraw_later(wp, UPD_VALID);
+    }
+    return;
+  }
+
   bool check_botline = false;
   OptInt *so_ptr = wp->w_p_so >= 0 ? &wp->w_p_so : &p_so;
   OptInt save_so = *so_ptr;
@@ -509,7 +641,10 @@ void update_curswant(void)
 // Check if the cursor has moved.  Set the w_valid flag accordingly.
 void check_cursor_moved(win_T *wp)
 {
-  if (wp->w_cursor.lnum != wp->w_valid_cursor.lnum) {
+  bool cursor_lnum_changed = wp->w_cursor.lnum != wp->w_valid_cursor.lnum;
+  bool cursor_seg_changed = win_has_segments(wp) && wp->w_cursor_seg != wp->w_valid_cursor_seg;
+
+  if (cursor_lnum_changed || cursor_seg_changed) {
     wp->w_valid &= ~(VALID_WROW|VALID_WCOL|VALID_VIRTCOL
                      |VALID_CHEIGHT|VALID_CROW|VALID_TOPLINE);
 
@@ -521,6 +656,7 @@ void check_cursor_moved(win_T *wp)
       changed_window_setting(wp);
     }
     wp->w_valid_cursor = wp->w_cursor;
+    wp->w_valid_cursor_seg = wp->w_cursor_seg;
     wp->w_valid_leftcol = wp->w_leftcol;
     wp->w_valid_skipcol = wp->w_skipcol;
     wp->w_viewport_invalid = true;
@@ -529,6 +665,7 @@ void check_cursor_moved(win_T *wp)
                      |VALID_CHEIGHT|VALID_CROW
                      |VALID_BOTLINE|VALID_BOTLINE_AP);
     wp->w_valid_cursor = wp->w_cursor;
+    wp->w_valid_cursor_seg = wp->w_cursor_seg;
     wp->w_valid_leftcol = wp->w_leftcol;
     wp->w_valid_skipcol = wp->w_skipcol;
   } else if (wp->w_cursor.col != wp->w_valid_cursor.col
@@ -537,6 +674,7 @@ void check_cursor_moved(win_T *wp)
              wp->w_valid_cursor.coladd) {
     wp->w_valid &= ~(VALID_WROW|VALID_WCOL|VALID_VIRTCOL);
     wp->w_valid_cursor.col = wp->w_cursor.col;
+    wp->w_valid_cursor_seg = wp->w_cursor_seg;
     wp->w_valid_leftcol = wp->w_leftcol;
     wp->w_valid_cursor.coladd = wp->w_cursor.coladd;
     wp->w_viewport_invalid = true;
@@ -654,6 +792,39 @@ void validate_cursor(win_T *wp)
 // of wp->w_topline.
 static void curs_rows(win_T *wp)
 {
+  if (win_has_segments(wp)) {
+    linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
+    wp->w_cline_row = 0;
+    wp->w_cline_height = multibuf_plines_correct_topline(wp, cursor_abs_lnum, NULL, true, NULL);
+    wp->w_cline_folded = false;
+
+    int row = 0;
+    bool found = false;
+    for (int i = 0; i < wp->w_lines_valid && row < wp->w_view_height; i++) {
+      wline_T *wl = &wp->w_lines[i];
+      if (!wl->wl_valid) {
+        row += wl->wl_size;
+        continue;
+      }
+      if (wl->wl_lnum <= cursor_abs_lnum && cursor_abs_lnum <= wl->wl_lastlnum) {
+        wp->w_cline_row = row;
+        wp->w_cline_height = wl->wl_size;
+        found = true;
+        break;
+      }
+      row += wl->wl_size;
+    }
+
+    if (!found) {
+      wp->w_cline_row = multibuf_rows_from_topline(wp, cursor_abs_lnum);
+      wp->w_cline_row = MAX(0, MIN(wp->w_cline_row, wp->w_view_height - 1));
+    }
+
+    redraw_for_cursorline(wp);
+    wp->w_valid |= VALID_CROW | VALID_CHEIGHT;
+    return;
+  }
+
   // Check if wp->w_lines[].wl_size is invalid
   bool all_invalid = (!redrawing()
                       || wp->w_lines_valid == 0

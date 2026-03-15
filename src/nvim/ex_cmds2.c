@@ -6,8 +6,10 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "klib/kvec.h"
 #include "nvim/arglist.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
@@ -97,6 +99,104 @@ void ex_perlfile(exarg_T *eap)
 void ex_perldo(exarg_T *eap)
 {
   script_host_do_range("perl", eap);
+}
+
+void ex_multibuf(exarg_T *eap)
+{
+  char *arg = eap->arg;
+  while (ascii_iswhite(*arg)) {
+    arg++;
+  }
+
+  bool bracketed = false;
+  if (*arg == '[') {
+    bracketed = true;
+    arg++;
+  }
+
+  kvec_t(int) bufnrs = KV_INITIAL_VALUE;
+  while (*arg != NUL) {
+    while (ascii_iswhite(*arg)) {
+      arg++;
+    }
+
+    if (bracketed && *arg == ']') {
+      arg++;
+      break;
+    }
+    if (*arg == NUL) {
+      break;
+    }
+
+    char *endptr = NULL;
+    long bufnr = strtol(arg, &endptr, 10);
+    if (endptr == arg || bufnr <= 0 || bufnr > INT_MAX) {
+      emsg(_(e_invarg));
+      goto ex_multibuf_cleanup;
+    }
+    kv_push(bufnrs, (int)bufnr);
+    arg = endptr;
+
+    while (ascii_iswhite(*arg)) {
+      arg++;
+    }
+    if (*arg == ',') {
+      arg++;
+      continue;
+    }
+    if (bracketed && *arg == ']') {
+      arg++;
+      break;
+    }
+    if (*arg == NUL) {
+      break;
+    }
+    emsg(_(e_invarg));
+    goto ex_multibuf_cleanup;
+  }
+
+  while (ascii_iswhite(*arg)) {
+    arg++;
+  }
+  if (*arg != NUL) {
+    emsg(_(e_trailing));
+    goto ex_multibuf_cleanup;
+  }
+
+  if (kv_size(bufnrs) == 0) {
+    emsg(_(e_argreq));
+    goto ex_multibuf_cleanup;
+  }
+
+  wsegment_T *segments = xcalloc(kv_size(bufnrs), sizeof(*segments));
+  for (size_t i = 0; i < kv_size(bufnrs); i++) {
+    buf_T *buf = buflist_findnr(kv_A(bufnrs, i));
+    if (buf == NULL) {
+      semsg(_(e_buffer_nr_not_found), (int64_t)kv_A(bufnrs, i));
+      xfree(segments);
+      goto ex_multibuf_cleanup;
+    }
+    segments[i].ws_buf = buf;
+  }
+
+  win_clear_segments(curwin);
+  curwin->w_segments = segments;
+  curwin->w_segment_count = kv_size(bufnrs);
+
+  curwin->w_cursor_seg = 0;
+  curwin->w_cursor.lnum = 1;
+  curwin->w_cursor.col = 0;
+  curwin->w_cursor.coladd = 0;
+  curwin->w_topline = 1;
+  curwin->w_topfill = 0;
+  curwin->w_leftcol = 0;
+  curwin->w_skipcol = 0;
+  win_multibuf_set_cursor_pos(curwin, 1);
+
+  changed_window_setting(curwin);
+
+ex_multibuf_cleanup:
+  kv_destroy(bufnrs);
 }
 
 /// If 'autowrite' option set, try to write the file.

@@ -5414,6 +5414,181 @@ win_T *buf_jump_open_tab(buf_T *buf)
 
 static int last_win_id = LOWEST_WIN_ID - 1;
 
+bool win_has_segments(const win_T *wp)
+{
+  return wp != NULL && wp->w_segments != NULL && wp->w_segment_count > 0;
+}
+
+static linenr_T win_segment_span(const win_T *wp, size_t seg_idx)
+{
+  buf_T *buf = wp->w_segments[seg_idx].ws_buf;
+  linenr_T line_count = (buf == NULL) ? 0 : buf->b_ml.ml_line_count;
+  return MAX(line_count, 1);
+}
+
+static linenr_T win_segment_start_lnum(const win_T *wp, size_t seg_idx)
+{
+  linenr_T start = 1;
+  for (size_t i = 0; i < seg_idx; i++) {
+    start += win_segment_span(wp, i);
+  }
+  return start;
+}
+
+linenr_T win_segment_total_lnum(const win_T *wp)
+{
+  if (wp == NULL) {
+    return 0;
+  }
+
+  if (!win_has_segments(wp)) {
+    return wp->w_buffer == NULL ? 0 : wp->w_buffer->b_ml.ml_line_count;
+  }
+
+  linenr_T total = 0;
+  for (size_t i = 0; i < wp->w_segment_count; i++) {
+    total += win_segment_span(wp, i);
+  }
+
+  return MAX(total, 1);
+}
+
+linenr_T win_cursor_abs_lnum(const win_T *wp)
+{
+  if (!win_has_segments(wp)) {
+    return wp->w_cursor.lnum;
+  }
+
+  size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
+  linenr_T local_max = win_segment_span(wp, seg_idx);
+  linenr_T local_lnum = MIN(MAX(wp->w_cursor.lnum, 1), local_max);
+  return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
+}
+
+linenr_T win_visual_abs_lnum(const win_T *wp)
+{
+  if (!win_has_segments(wp)) {
+    return VIsual.lnum;
+  }
+
+  size_t seg_idx = MIN(wp->w_visual_seg, wp->w_segment_count - 1);
+  linenr_T local_max = win_segment_span(wp, seg_idx);
+  linenr_T local_lnum = MIN(MAX(VIsual.lnum, 1), local_max);
+  return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
+}
+
+bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linenr_T *buf_lnum,
+                              size_t *seg_idx)
+{
+  if (buf != NULL) {
+    *buf = NULL;
+  }
+  if (buf_lnum != NULL) {
+    *buf_lnum = 0;
+  }
+  if (seg_idx != NULL) {
+    *seg_idx = 0;
+  }
+
+  if (wp == NULL || lnum < 1) {
+    return false;
+  }
+
+  if (!win_has_segments(wp)) {
+    if (wp->w_buffer == NULL) {
+      return false;
+    }
+    if (buf != NULL) {
+      *buf = wp->w_buffer;
+    }
+    if (buf_lnum != NULL) {
+      *buf_lnum = lnum;
+    }
+    return true;
+  }
+
+  linenr_T start = 1;
+  for (size_t i = 0; i < wp->w_segment_count; i++) {
+    buf_T *cur_buf = wp->w_segments[i].ws_buf;
+    linenr_T line_count = win_segment_span(wp, i);
+    linenr_T end = start + line_count - 1;
+    if (lnum >= start && lnum <= end) {
+      if (buf != NULL) {
+        *buf = cur_buf;
+      }
+      if (buf_lnum != NULL) {
+        *buf_lnum = lnum - start + 1;
+      }
+      if (seg_idx != NULL) {
+        *seg_idx = i;
+      }
+      return cur_buf != NULL;
+    }
+    start = end + 1;
+  }
+
+  return false;
+}
+
+bool win_multibuf_set_buffer_for_lnum(win_T *wp, linenr_T lnum, linenr_T *buf_lnum,
+                                      size_t *seg_idx)
+{
+  buf_T *buf = NULL;
+  linenr_T local_lnum = 0;
+  size_t local_seg_idx = 0;
+  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &local_seg_idx)) {
+    return false;
+  }
+
+  wp->w_buffer = buf;
+  if (wp == curwin) {
+    curbuf = buf;
+  }
+
+  if (buf_lnum != NULL) {
+    *buf_lnum = local_lnum;
+  }
+  if (seg_idx != NULL) {
+    *seg_idx = local_seg_idx;
+  }
+  return true;
+}
+
+bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum)
+{
+  buf_T *buf = NULL;
+  linenr_T local_lnum = 0;
+  size_t seg_idx = 0;
+  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &seg_idx)) {
+    return false;
+  }
+
+  wp->w_cursor_seg = seg_idx;
+  wp->w_cursor.lnum = local_lnum;
+  wp->w_buffer = buf;
+  if (wp == curwin) {
+    curbuf = buf;
+  }
+  return true;
+}
+
+void win_set_visual_cursor(win_T *wp)
+{
+  VIsual = wp->w_cursor;
+  if (win_has_segments(wp)) {
+    wp->w_visual_seg = wp->w_cursor_seg;
+  }
+}
+
+void win_clear_segments(win_T *wp)
+{
+  xfree(wp->w_segments);
+  wp->w_segments = NULL;
+  wp->w_segment_count = 0;
+  wp->w_cursor_seg = 0;
+  wp->w_visual_seg = 0;
+}
+
 /// @param hidden  allocate a window structure and link it in the window if
 //                 false.
 win_T *win_alloc(win_T *after, bool hidden)
@@ -5498,6 +5673,7 @@ void win_free(win_T *wp, tabpage_T *tp)
 {
   pmap_del(int)(&window_handles, wp->handle, NULL);
   clearFolding(wp);
+  win_clear_segments(wp);
 
   // reduce the reference count to the argument list.
   alist_unlink(wp->w_alist);

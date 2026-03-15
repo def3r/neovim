@@ -4629,7 +4629,7 @@ static void v_swap_corners(int cmdchar)
     getvcols(curwin, &old_cursor, &VIsual, &left, &right);
     curwin->w_cursor.lnum = VIsual.lnum;
     coladvance(curwin, left);
-    VIsual = curwin->w_cursor;
+    win_set_visual_cursor(curwin);
 
     curwin->w_cursor.lnum = old_cursor.lnum;
     curwin->w_curswant = right;
@@ -4648,7 +4648,7 @@ static void v_swap_corners(int cmdchar)
         right++;
       }
       coladvance(curwin, right);
-      VIsual = curwin->w_cursor;
+      win_set_visual_cursor(curwin);
 
       curwin->w_cursor.lnum = old_cursor.lnum;
       coladvance(curwin, left);
@@ -5009,7 +5009,7 @@ static void nv_visual(cmdarg_T *cap)
   } else {                // start Visual mode
     if (cap->count0 > 0 && resel_VIsual_mode != NUL) {
       // use previously selected part
-      VIsual = curwin->w_cursor;
+      win_set_visual_cursor(curwin);
 
       VIsual_active = true;
       VIsual_reselect = true;
@@ -5113,7 +5113,7 @@ static void n_start_visual_mode(int c)
     validate_virtcol(curwin);
     coladvance(curwin, curwin->w_virtcol);
   }
-  VIsual = curwin->w_cursor;
+  win_set_visual_cursor(curwin);
 
   foldAdjustVisual();
 
@@ -5128,8 +5128,9 @@ static void n_start_visual_mode(int c)
   // Only need to redraw this line, unless still need to redraw an old
   // Visual area (when 'lazyredraw' is set).
   if (curwin->w_redr_type < UPD_INVERTED) {
-    curwin->w_old_cursor_lnum = curwin->w_cursor.lnum;
-    curwin->w_old_visual_lnum = curwin->w_cursor.lnum;
+    linenr_T cursor_lnum = win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
+    curwin->w_old_cursor_lnum = cursor_lnum;
+    curwin->w_old_visual_lnum = cursor_lnum;
   }
   redraw_curbuf_later(UPD_VALID);
 }
@@ -5196,7 +5197,7 @@ static void nv_gv_cmd(cmdarg_T *cap)
   // Set Visual to the start and w_cursor to the end of the Visual
   // area.  Make sure they are on an existing character.
   check_cursor(curwin);
-  VIsual = curwin->w_cursor;
+  win_set_visual_cursor(curwin);
   curwin->w_cursor = tpos;
   check_cursor(curwin);
   update_topline(curwin);

@@ -70,6 +70,7 @@
 #include "nvim/ui.h"
 #include "nvim/undo.h"
 #include "nvim/vim_defs.h"
+#include "nvim/window.h"
 
 /// State for adding bytes to a recording or 'showcmd'.
 typedef struct {
@@ -832,7 +833,7 @@ int start_redo(int count, bool old_redo)
   }
 
   if (c == 'v') {   // redo Visual
-    VIsual = curwin->w_cursor;
+    win_set_visual_cursor(curwin);
     VIsual_active = true;
     VIsual_select = false;
     VIsual_reselect = true;
