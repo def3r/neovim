@@ -1704,6 +1704,7 @@ void nvim_set_client_info(uint64_t channel_id, String name, Dict version, String
 /// @returns Channel info dict with these keys:
 ///    - "id"       Channel id.
 ///    - "argv"     (optional) Job arguments list.
+///    - "internal" (optional) Set if the channel is handled internally by neovim.
 ///    - "stream"   Stream underlying the channel.
 ///         - "stdio"      stdin and stdout of this Nvim instance
 ///         - "stderr"     stderr of this Nvim instance
