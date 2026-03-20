@@ -416,7 +416,7 @@ void check_cursor(win_T *wp)
 void check_visual_pos(void)
 {
   if (win_has_segments(curwin)) {
-    size_t seg_idx = MIN(curwin->w_visual_seg, curwin->w_segment_count - 1);
+    size_t seg_idx = MIN(curwin->w_cursor_seg, curwin->w_segment_count - 1);
     buf_T *buf = curwin->w_segments[seg_idx].ws_buf;
     linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
 

@@ -5471,7 +5471,7 @@ linenr_T win_visual_abs_lnum(const win_T *wp)
     return VIsual.lnum;
   }
 
-  size_t seg_idx = MIN(wp->w_visual_seg, wp->w_segment_count - 1);
+  size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
   linenr_T local_max = win_segment_span(wp, seg_idx);
   linenr_T local_lnum = MIN(MAX(VIsual.lnum, 1), local_max);
   return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
@@ -5577,9 +5577,6 @@ bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum)
 void win_set_visual_cursor(win_T *wp)
 {
   VIsual = wp->w_cursor;
-  if (win_has_segments(wp)) {
-    wp->w_visual_seg = wp->w_cursor_seg;
-  }
 }
 
 void win_clear_segments(win_T *wp)

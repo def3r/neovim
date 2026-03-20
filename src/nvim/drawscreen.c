@@ -1423,25 +1423,46 @@ static void win_update_multibuf(win_T *wp)
   spellvars_T zero_spv = { 0 };
   foldinfo_T zero_foldinfo = { 0 };
 
+  int header_attr = win_hl_attr(wp, HLF_C);
+
   int row = 0;
   int idx = 0;
   linenr_T lnum = wp->w_topline;
   while (row < wp->w_view_height && lnum <= total_lnum) {
+    linenr_T segment_lnum = 0;
+    size_t seg_idx = 0;
     int srow = row;
     buf_T *segment_buf = NULL;
-    linenr_T segment_lnum = 0;
-    if (win_resolve_segment_lnum(wp, lnum, &segment_buf, NULL, NULL)) {
+    if (win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, &seg_idx)) {
+      if (segment_lnum == 1 && row < wp->w_view_height) {
+        const char *name = "[No Name]";
+        if (segment_buf->b_ffname != NULL) {
+          name = (const char *)segment_buf->b_ffname;
+        } else if (segment_buf->b_fname != NULL) {
+          name = (const char *)segment_buf->b_fname;
+        }
+
+        char header[IOSIZE];
+        snprintf(header, sizeof(header), "-- [%zu/%zu] %s --", seg_idx + 1, wp->w_segment_count, name);
+
+        grid_line_start(&wp->w_grid, row);
+        int used = grid_line_puts(0, header, -1, header_attr);
+        grid_line_fill(used, wp->w_view_width, schar_from_ascii('-'), header_attr);
+        grid_line_flush();
+        row++;
+      }
+
       wp->w_buffer = segment_buf;
       wp->w_s = &segment_buf->b_s;
       if (segment_buf != provider_buf) {
         provider_buf = segment_buf;
         decor_redraw_reset(wp, &decor_state);
-        (void)win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, NULL);
         decor_providers_invoke_win_buf(wp, segment_buf, segment_lnum,
                                        segment_buf->b_ml.ml_line_count);
       }
     }
-    row = win_line(wp, lnum, srow, wp->w_view_height, 0, false, &zero_spv, zero_foldinfo);
+    int line_srow = row;
+    row = win_line(wp, lnum, line_srow, wp->w_view_height, 0, false, &zero_spv, zero_foldinfo);
 
     if (idx < wp->w_lines_size) {
       wp->w_lines[idx].wl_lnum = lnum;
