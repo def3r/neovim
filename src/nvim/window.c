@@ -49,6 +49,7 @@
 #include "nvim/mapping.h"
 #include "nvim/mark.h"
 #include "nvim/mark_defs.h"
+#include "nvim/marktree.h"
 #include "nvim/match.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
@@ -5419,11 +5420,53 @@ bool win_has_segments(const win_T *wp)
   return wp != NULL && wp->w_segments != NULL && wp->w_segment_count > 0;
 }
 
+bool win_segment_lnum_bounds(const win_T *wp, size_t seg_idx, linenr_T *start_lnum,
+                             linenr_T *end_lnum)
+{
+  if (!win_has_segments(wp) || seg_idx >= wp->w_segment_count) {
+    return false;
+  }
+
+  buf_T *buf = wp->w_segments[seg_idx].ws_buf;
+  linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
+  linenr_T start = 1;
+  linenr_T end = line_count;
+
+  if (buf != NULL && wp->w_segments[seg_idx].ws_has_range
+      && wp->w_segments[seg_idx].ws_range_ns != 0) {
+    MTKey start_mark = marktree_lookup_ns(buf->b_marktree, wp->w_segments[seg_idx].ws_range_ns,
+                                          wp->w_segments[seg_idx].ws_start_id, false, NULL);
+    MTKey end_mark = marktree_lookup_ns(buf->b_marktree, wp->w_segments[seg_idx].ws_range_ns,
+                                        wp->w_segments[seg_idx].ws_end_id, false, NULL);
+
+    if (start_mark.id != 0 && start_mark.pos.row >= 0) {
+      start = MIN(MAX(start_mark.pos.row + 1, 1), line_count);
+    }
+    if (end_mark.id != 0 && end_mark.pos.row >= 0) {
+      end = MIN(MAX(end_mark.pos.row + 1, 1), line_count);
+    }
+    if (end < start) {
+      end = start;
+    }
+  }
+
+  if (start_lnum != NULL) {
+    *start_lnum = start;
+  }
+  if (end_lnum != NULL) {
+    *end_lnum = end;
+  }
+  return buf != NULL;
+}
+
 static linenr_T win_segment_span(const win_T *wp, size_t seg_idx)
 {
-  buf_T *buf = wp->w_segments[seg_idx].ws_buf;
-  linenr_T line_count = (buf == NULL) ? 0 : buf->b_ml.ml_line_count;
-  return MAX(line_count, 1);
+  linenr_T start = 1;
+  linenr_T end = 1;
+  if (!win_segment_lnum_bounds(wp, seg_idx, &start, &end)) {
+    return 1;
+  }
+  return MAX(end - start + 1, 1);
 }
 
 static linenr_T win_segment_start_lnum(const win_T *wp, size_t seg_idx)
@@ -5460,8 +5503,10 @@ linenr_T win_cursor_abs_lnum(const win_T *wp)
   }
 
   size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
-  linenr_T local_max = win_segment_span(wp, seg_idx);
-  linenr_T local_lnum = MIN(MAX(wp->w_cursor.lnum, 1), local_max);
+  linenr_T seg_start = 1;
+  linenr_T seg_end = 1;
+  (void)win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
+  linenr_T local_lnum = MIN(MAX(wp->w_cursor.lnum, seg_start), seg_end) - seg_start + 1;
   return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
 }
 
@@ -5472,8 +5517,10 @@ linenr_T win_visual_abs_lnum(const win_T *wp)
   }
 
   size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
-  linenr_T local_max = win_segment_span(wp, seg_idx);
-  linenr_T local_lnum = MIN(MAX(VIsual.lnum, 1), local_max);
+  linenr_T seg_start = 1;
+  linenr_T seg_end = 1;
+  (void)win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
+  linenr_T local_lnum = MIN(MAX(VIsual.lnum, seg_start), seg_end) - seg_start + 1;
   return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
 }
 
@@ -5510,14 +5557,17 @@ bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linen
   linenr_T start = 1;
   for (size_t i = 0; i < wp->w_segment_count; i++) {
     buf_T *cur_buf = wp->w_segments[i].ws_buf;
-    linenr_T line_count = win_segment_span(wp, i);
+    linenr_T seg_start = 1;
+    linenr_T seg_end = 1;
+    (void)win_segment_lnum_bounds(wp, i, &seg_start, &seg_end);
+    linenr_T line_count = MAX(seg_end - seg_start + 1, 1);
     linenr_T end = start + line_count - 1;
     if (lnum >= start && lnum <= end) {
       if (buf != NULL) {
         *buf = cur_buf;
       }
       if (buf_lnum != NULL) {
-        *buf_lnum = lnum - start + 1;
+        *buf_lnum = seg_start + (lnum - start);
       }
       if (seg_idx != NULL) {
         *seg_idx = i;

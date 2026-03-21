@@ -314,13 +314,15 @@ void check_cursor_lnum(win_T *win)
 {
   if (win_has_segments(win)) {
     size_t seg_idx = MIN(win->w_cursor_seg, win->w_segment_count - 1);
+    linenr_T seg_start = 1;
+    linenr_T seg_end = 1;
+    (void)win_segment_lnum_bounds(win, seg_idx, &seg_start, &seg_end);
     buf_T *buf = win->w_segments[seg_idx].ws_buf;
-    linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
-    if (win->w_cursor.lnum > line_count) {
-      win->w_cursor.lnum = line_count;
+    if (win->w_cursor.lnum > seg_end) {
+      win->w_cursor.lnum = seg_end;
     }
-    if (win->w_cursor.lnum <= 0) {
-      win->w_cursor.lnum = 1;
+    if (win->w_cursor.lnum < seg_start) {
+      win->w_cursor.lnum = seg_start;
     }
     if (buf != NULL) {
       win->w_buffer = buf;
@@ -417,11 +419,17 @@ void check_visual_pos(void)
 {
   if (win_has_segments(curwin)) {
     size_t seg_idx = MIN(curwin->w_cursor_seg, curwin->w_segment_count - 1);
+    linenr_T seg_start = 1;
+    linenr_T seg_end = 1;
+    (void)win_segment_lnum_bounds(curwin, seg_idx, &seg_start, &seg_end);
     buf_T *buf = curwin->w_segments[seg_idx].ws_buf;
-    linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
 
-    if (VIsual.lnum > line_count) {
-      VIsual.lnum = line_count;
+    if (VIsual.lnum > seg_end) {
+      VIsual.lnum = seg_end;
+      VIsual.col = 0;
+      VIsual.coladd = 0;
+    } else if (VIsual.lnum < seg_start) {
+      VIsual.lnum = seg_start;
       VIsual.col = 0;
       VIsual.coladd = 0;
     } else {

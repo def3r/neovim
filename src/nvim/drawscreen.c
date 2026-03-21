@@ -1434,7 +1434,9 @@ static void win_update_multibuf(win_T *wp)
     int srow = row;
     buf_T *segment_buf = NULL;
     if (win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, &seg_idx)) {
-      if (segment_lnum == 1 && row < wp->w_view_height) {
+      linenr_T segment_start_lnum = 1;
+      (void)win_segment_lnum_bounds(wp, seg_idx, &segment_start_lnum, NULL);
+      if (segment_lnum == segment_start_lnum && row < wp->w_view_height) {
         const char *name = "[No Name]";
         if (segment_buf->b_ffname != NULL) {
           name = (const char *)segment_buf->b_ffname;

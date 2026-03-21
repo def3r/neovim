@@ -10,6 +10,8 @@
 #include <string.h>
 
 #include "klib/kvec.h"
+#include "nvim/api/extmark.h"
+#include "nvim/api/private/helpers.h"
 #include "nvim/arglist.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
@@ -29,6 +31,7 @@
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_getln.h"
+#include "nvim/extmark.h"
 #include "nvim/fileio.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
@@ -55,6 +58,38 @@
 
 static const char e_compiler_not_supported_str[]
   = N_("E666: Compiler not supported: %s");
+
+static uint32_t multibuf_range_ns = 0;
+
+typedef struct {
+  int bufnr;
+  bool has_range;
+  linenr_T start_lnum;
+  linenr_T end_lnum;
+} multibuf_arg_T;
+
+static uint32_t multibuf_get_range_ns(void)
+{
+  if (multibuf_range_ns == 0) {
+    multibuf_range_ns = (uint32_t)nvim_create_namespace(cstr_as_string("multibuf-segment-range"));
+  }
+  return multibuf_range_ns;
+}
+
+static void multibuf_clear_range_marks(wsegment_T *segments, size_t segment_count)
+{
+  if (segments == NULL || segment_count == 0) {
+    return;
+  }
+
+  for (size_t i = 0; i < segment_count; i++) {
+    if (!segments[i].ws_has_range || segments[i].ws_buf == NULL || segments[i].ws_range_ns == 0) {
+      continue;
+    }
+    (void)extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_start_id);
+    (void)extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_end_id);
+  }
+}
 
 void ex_ruby(exarg_T *eap)
 {
@@ -114,7 +149,7 @@ void ex_multibuf(exarg_T *eap)
     arg++;
   }
 
-  kvec_t(int) bufnrs = KV_INITIAL_VALUE;
+  kvec_t(multibuf_arg_T) segargs = KV_INITIAL_VALUE;
   while (*arg != NUL) {
     while (ascii_iswhite(*arg)) {
       arg++;
@@ -134,8 +169,39 @@ void ex_multibuf(exarg_T *eap)
       emsg(_(e_invarg));
       goto ex_multibuf_cleanup;
     }
-    kv_push(bufnrs, (int)bufnr);
+    multibuf_arg_T segarg = {
+      .bufnr = (int)bufnr,
+      .has_range = false,
+      .start_lnum = 1,
+      .end_lnum = 1,
+    };
     arg = endptr;
+
+    if (*arg == ':') {
+      arg++;
+      long start_lnum = strtol(arg, &endptr, 10);
+      if (endptr == arg || start_lnum <= 0 || start_lnum > MAXLNUM) {
+        emsg(_(e_invarg));
+        goto ex_multibuf_cleanup;
+      }
+      arg = endptr;
+      if (*arg != ':') {
+        emsg(_(e_invarg));
+        goto ex_multibuf_cleanup;
+      }
+      arg++;
+      long end_lnum = strtol(arg, &endptr, 10);
+      if (endptr == arg || end_lnum <= 0 || end_lnum > MAXLNUM || end_lnum < start_lnum) {
+        emsg(_(e_invarg));
+        goto ex_multibuf_cleanup;
+      }
+      arg = endptr;
+      segarg.has_range = true;
+      segarg.start_lnum = (linenr_T)start_lnum;
+      segarg.end_lnum = (linenr_T)end_lnum;
+    }
+
+    kv_push(segargs, segarg);
 
     while (ascii_iswhite(*arg)) {
       arg++;
@@ -163,25 +229,47 @@ void ex_multibuf(exarg_T *eap)
     goto ex_multibuf_cleanup;
   }
 
-  if (kv_size(bufnrs) == 0) {
+  if (kv_size(segargs) == 0) {
     emsg(_(e_argreq));
     goto ex_multibuf_cleanup;
   }
 
-  wsegment_T *segments = xcalloc(kv_size(bufnrs), sizeof(*segments));
-  for (size_t i = 0; i < kv_size(bufnrs); i++) {
-    buf_T *buf = buflist_findnr(kv_A(bufnrs, i));
+  wsegment_T *segments = xcalloc(kv_size(segargs), sizeof(*segments));
+  for (size_t i = 0; i < kv_size(segargs); i++) {
+    multibuf_arg_T segarg = kv_A(segargs, i);
+    buf_T *buf = buflist_findnr(segarg.bufnr);
     if (buf == NULL) {
-      semsg(_(e_buffer_nr_not_found), (int64_t)kv_A(bufnrs, i));
+      semsg(_(e_buffer_nr_not_found), (int64_t)segarg.bufnr);
+      multibuf_clear_range_marks(segments, i);
       xfree(segments);
       goto ex_multibuf_cleanup;
     }
     segments[i].ws_buf = buf;
+
+    if (segarg.has_range) {
+      uint32_t ns = multibuf_get_range_ns();
+      linenr_T line_count = MAX(buf->b_ml.ml_line_count, 1);
+      linenr_T start_lnum = MIN(MAX(segarg.start_lnum, 1), line_count);
+      linenr_T end_lnum = MIN(MAX(segarg.end_lnum, start_lnum), line_count);
+
+      uint32_t start_id = 0;
+      uint32_t end_id = 0;
+      extmark_set(buf, ns, &start_id, start_lnum - 1, 0, -1, -1,
+                  (DecorInline)DECOR_INLINE_INIT, 0, false, false, true, false, NULL);
+      extmark_set(buf, ns, &end_id, end_lnum - 1, 0, -1, -1,
+                  (DecorInline)DECOR_INLINE_INIT, 0, true, false, true, false, NULL);
+
+      segments[i].ws_has_range = true;
+      segments[i].ws_range_ns = ns;
+      segments[i].ws_start_id = start_id;
+      segments[i].ws_end_id = end_id;
+    }
   }
 
+  multibuf_clear_range_marks(curwin->w_segments, curwin->w_segment_count);
   win_clear_segments(curwin);
   curwin->w_segments = segments;
-  curwin->w_segment_count = kv_size(bufnrs);
+  curwin->w_segment_count = kv_size(segargs);
 
   curwin->w_cursor_seg = 0;
   curwin->w_cursor.lnum = 1;
@@ -196,7 +284,7 @@ void ex_multibuf(exarg_T *eap)
   changed_window_setting(curwin);
 
 ex_multibuf_cleanup:
-  kv_destroy(bufnrs);
+  kv_destroy(segargs);
 }
 
 /// If 'autowrite' option set, try to write the file.

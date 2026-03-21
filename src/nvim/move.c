@@ -147,8 +147,10 @@ static int multibuf_rows_from_topline(win_T *wp, linenr_T target_lnum)
     buf_T *buf = NULL;
     linenr_T local_lnum = 0;
     size_t line_seg_idx = seg_idx;
+    linenr_T seg_start = 1;
     if (win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &line_seg_idx)
-        && local_lnum == 1) {
+        && win_segment_lnum_bounds(wp, line_seg_idx, &seg_start, NULL)
+        && local_lnum == seg_start) {
       row++;
       if (row >= wp->w_view_height) {
         break;
@@ -847,9 +849,12 @@ static void curs_rows(win_T *wp)
   if (win_has_segments(wp)) {
     linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
     linenr_T cursor_local_lnum = 0;
-    bool cursor_seg_start = false;
-    if (win_resolve_segment_lnum(wp, cursor_abs_lnum, NULL, &cursor_local_lnum, NULL)) {
-      cursor_seg_start = cursor_local_lnum == 1;
+    size_t cursor_seg_idx = 0;
+    linenr_T cursor_seg_start_lnum = 1;
+    bool cursor_at_seg_start = false;
+    if (win_resolve_segment_lnum(wp, cursor_abs_lnum, NULL, &cursor_local_lnum, &cursor_seg_idx)
+        && win_segment_lnum_bounds(wp, cursor_seg_idx, &cursor_seg_start_lnum, NULL)) {
+      cursor_at_seg_start = cursor_local_lnum == cursor_seg_start_lnum;
     }
     wp->w_cline_row = 0;
     wp->w_cline_height = multibuf_plines_correct_topline(wp, cursor_abs_lnum, NULL, true, NULL);
@@ -866,7 +871,7 @@ static void curs_rows(win_T *wp)
       if (wl->wl_lnum <= cursor_abs_lnum && cursor_abs_lnum <= wl->wl_lastlnum) {
         wp->w_cline_row = row;
         wp->w_cline_height = wl->wl_size;
-        if (cursor_seg_start) {
+        if (cursor_at_seg_start) {
           wp->w_cline_row += 1;
           wp->w_cline_height = MAX(1, wp->w_cline_height - 1);
         }
@@ -878,7 +883,7 @@ static void curs_rows(win_T *wp)
 
     if (!found) {
       wp->w_cline_row = multibuf_rows_from_topline(wp, cursor_abs_lnum);
-      if (cursor_seg_start) {
+      if (cursor_at_seg_start) {
         wp->w_cline_row += 1;
       }
       wp->w_cline_row = MAX(0, MIN(wp->w_cline_row, wp->w_view_height - 1));

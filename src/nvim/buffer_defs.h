@@ -77,6 +77,10 @@ typedef uint64_t disptick_T;  // display tick type
 
 typedef struct {
   buf_T *ws_buf;
+  bool ws_has_range;
+  uint32_t ws_range_ns;
+  uint32_t ws_start_id;
+  uint32_t ws_end_id;
 } wsegment_T;
 
 // The taggy struct is used to store the information about a :tag command.

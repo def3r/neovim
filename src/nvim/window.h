@@ -36,6 +36,8 @@ enum {
 };
 
 bool win_has_segments(const win_T *wp);
+bool win_segment_lnum_bounds(const win_T *wp, size_t seg_idx, linenr_T *start_lnum,
+                             linenr_T *end_lnum);
 linenr_T win_segment_total_lnum(const win_T *wp);
 linenr_T win_cursor_abs_lnum(const win_T *wp);
 linenr_T win_visual_abs_lnum(const win_T *wp);
