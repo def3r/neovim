@@ -4629,7 +4629,7 @@ static void v_swap_corners(int cmdchar)
     getvcols(curwin, &old_cursor, &VIsual, &left, &right);
     curwin->w_cursor.lnum = VIsual.lnum;
     coladvance(curwin, left);
-    win_set_visual_cursor(curwin);
+    VIsual = curwin->w_cursor;
 
     curwin->w_cursor.lnum = old_cursor.lnum;
     curwin->w_curswant = right;
@@ -4648,7 +4648,7 @@ static void v_swap_corners(int cmdchar)
         right++;
       }
       coladvance(curwin, right);
-      win_set_visual_cursor(curwin);
+      VIsual = curwin->w_cursor;
 
       curwin->w_cursor.lnum = old_cursor.lnum;
       coladvance(curwin, left);
@@ -5009,7 +5009,7 @@ static void nv_visual(cmdarg_T *cap)
   } else {                // start Visual mode
     if (cap->count0 > 0 && resel_VIsual_mode != NUL) {
       // use previously selected part
-      win_set_visual_cursor(curwin);
+      VIsual = curwin->w_cursor;
 
       VIsual_active = true;
       VIsual_reselect = true;
@@ -5113,7 +5113,7 @@ static void n_start_visual_mode(int c)
     validate_virtcol(curwin);
     coladvance(curwin, curwin->w_virtcol);
   }
-  win_set_visual_cursor(curwin);
+  VIsual = curwin->w_cursor;
 
   foldAdjustVisual();
 
@@ -5197,7 +5197,7 @@ static void nv_gv_cmd(cmdarg_T *cap)
   // Set Visual to the start and w_cursor to the end of the Visual
   // area.  Make sure they are on an existing character.
   check_cursor(curwin);
-  win_set_visual_cursor(curwin);
+  VIsual = curwin->w_cursor;
   curwin->w_cursor = tpos;
   check_cursor(curwin);
   update_topline(curwin);

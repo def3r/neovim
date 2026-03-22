@@ -316,7 +316,7 @@ void check_cursor_lnum(win_T *win)
     size_t seg_idx = MIN(win->w_cursor_seg, win->w_segment_count - 1);
     linenr_T seg_start = 1;
     linenr_T seg_end = 1;
-    (void)win_segment_lnum_bounds(win, seg_idx, &seg_start, &seg_end);
+    win_segment_lnum_bounds(win, seg_idx, &seg_start, &seg_end);
     buf_T *buf = win->w_segments[seg_idx].ws_buf;
     if (win->w_cursor.lnum > seg_end) {
       win->w_cursor.lnum = seg_end;
@@ -403,7 +403,6 @@ void check_cursor_col(win_T *win)
       win->w_cursor.coladd = 0;
     }
   }
-
 }
 
 /// Make sure curwin->w_cursor in on a valid character
@@ -417,32 +416,6 @@ void check_cursor(win_T *wp)
 /// Can be called when in Visual mode and a change has been made.
 void check_visual_pos(void)
 {
-  if (win_has_segments(curwin)) {
-    size_t seg_idx = MIN(curwin->w_cursor_seg, curwin->w_segment_count - 1);
-    linenr_T seg_start = 1;
-    linenr_T seg_end = 1;
-    (void)win_segment_lnum_bounds(curwin, seg_idx, &seg_start, &seg_end);
-    buf_T *buf = curwin->w_segments[seg_idx].ws_buf;
-
-    if (VIsual.lnum > seg_end) {
-      VIsual.lnum = seg_end;
-      VIsual.col = 0;
-      VIsual.coladd = 0;
-    } else if (VIsual.lnum < seg_start) {
-      VIsual.lnum = seg_start;
-      VIsual.col = 0;
-      VIsual.coladd = 0;
-    } else {
-      int len = buf == NULL ? 0 : ml_get_buf_len(buf, VIsual.lnum);
-
-      if (VIsual.col > len) {
-        VIsual.col = len;
-        VIsual.coladd = 0;
-      }
-    }
-    return;
-  }
-
   if (VIsual.lnum > curbuf->b_ml.ml_line_count) {
     VIsual.lnum = curbuf->b_ml.ml_line_count;
     VIsual.col = 0;

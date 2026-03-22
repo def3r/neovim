@@ -1110,7 +1110,6 @@ struct window_S {
   wsegment_T *w_segments;     ///< stitched buffer segments for multibuffer windows
   size_t w_segment_count;     ///< number of entries in w_segments
   size_t w_cursor_seg;        ///< active segment for the multibuffer cursor
-  size_t w_visual_seg;        ///< active segment for the multibuffer Visual anchor
 
   synblock_T *w_s;                 ///< for :ownsyntax
 

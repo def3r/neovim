@@ -30,7 +30,6 @@
 #include "nvim/state.h"
 #include "nvim/state_defs.h"
 #include "nvim/types_defs.h"
-#include "nvim/window.h"
 
 #include "plines.c.generated.h"
 
@@ -597,7 +596,6 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
       *cursor = vcol + head;
     }
   }
-
 }
 
 /// Get virtual cursor column in the current window, pretending 'list' is off.

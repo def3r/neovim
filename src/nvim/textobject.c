@@ -26,7 +26,6 @@
 #include "nvim/strings.h"
 #include "nvim/textobject.h"
 #include "nvim/vim_defs.h"
-#include "nvim/window.h"
 
 #include "textobject.c.generated.h"
 
@@ -695,7 +694,7 @@ int current_word(oparg_T *oap, int count, bool include, bool bigword)
       back_in_line();
       if (cls() == 0 && curwin->w_cursor.col > 0) {
         if (VIsual_active) {
-          win_set_visual_cursor(curwin);
+          VIsual = curwin->w_cursor;
         } else {
           oap->start = curwin->w_cursor;
         }
@@ -1659,7 +1658,7 @@ bool current_quote(oparg_T *oap, int count, bool include, int quotechar)
                 || ((uint8_t)line[VIsual.col] != quotechar
                     && (VIsual.col == 0
                         || (uint8_t)line[VIsual.col - 1] != quotechar))))) {
-      win_set_visual_cursor(curwin);
+      VIsual = curwin->w_cursor;
       redraw_curbuf_later(UPD_INVERTED);
     }
   } else {
@@ -1690,7 +1689,7 @@ bool current_quote(oparg_T *oap, int count, bool include, int quotechar)
               && (line[VIsual.col] == NUL
                   || (uint8_t)line[VIsual.col + 1] != quotechar))) {
         dec_cursor();
-        win_set_visual_cursor(curwin);
+        VIsual = curwin->w_cursor;
       }
       curwin->w_cursor.col = col_start;
     }

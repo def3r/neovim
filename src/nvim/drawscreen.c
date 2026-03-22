@@ -802,7 +802,6 @@ void setcursor_mayforce(win_T *wp, bool force)
 
     int row = wp->w_wrow;
     int col = wp->w_wcol;
-
     if (wp->w_p_rl) {
       // With 'rightleft' set and the cursor on a double-wide character,
       // position it on the leftmost column.
@@ -1435,7 +1434,7 @@ static void win_update_multibuf(win_T *wp)
     buf_T *segment_buf = NULL;
     if (win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, &seg_idx)) {
       linenr_T segment_start_lnum = 1;
-      (void)win_segment_lnum_bounds(wp, seg_idx, &segment_start_lnum, NULL);
+      win_segment_lnum_bounds(wp, seg_idx, &segment_start_lnum, NULL);
       if (segment_lnum == segment_start_lnum && row < wp->w_view_height) {
         const char *name = "[No Name]";
         if (segment_buf->b_ffname != NULL) {

@@ -12,6 +12,4 @@ enum {
   CCGD_EXCMD   = 16,  ///< may suggest using !
 };
 
-void ex_multibuf(exarg_T *eap);
-
 #include "ex_cmds2.h.generated.h"

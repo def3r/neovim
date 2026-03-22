@@ -833,7 +833,7 @@ int start_redo(int count, bool old_redo)
   }
 
   if (c == 'v') {   // redo Visual
-    win_set_visual_cursor(curwin);
+    VIsual = curwin->w_cursor;
     VIsual_active = true;
     VIsual_select = false;
     VIsual_reselect = true;

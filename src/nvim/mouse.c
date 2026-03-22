@@ -784,7 +784,7 @@ bool do_mouse(oparg_T *oap, int c, int dir, int count, bool fixindent)
       start_visual = curwin->w_cursor;              // save the cursor pos
       curwin->w_cursor = end_visual;
       coladvance(curwin, end_visual.col);
-      win_set_visual_cursor(curwin);
+      VIsual = curwin->w_cursor;
       curwin->w_cursor = start_visual;              // restore the cursor
     } else {
       // If the click is before the start of visual, change the start.
@@ -896,7 +896,7 @@ bool do_mouse(oparg_T *oap, int c, int dir, int count, bool fixindent)
       if (VIsual_active) {
         orig_cursor = VIsual;
       } else {
-        win_set_visual_cursor(curwin);
+        VIsual = curwin->w_cursor;
         orig_cursor = VIsual;
         VIsual_active = true;
         VIsual_reselect = true;

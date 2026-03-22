@@ -5505,7 +5505,7 @@ linenr_T win_cursor_abs_lnum(const win_T *wp)
   size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
   linenr_T seg_start = 1;
   linenr_T seg_end = 1;
-  (void)win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
+  win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
   linenr_T local_lnum = MIN(MAX(wp->w_cursor.lnum, seg_start), seg_end) - seg_start + 1;
   return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
 }
@@ -5519,7 +5519,7 @@ linenr_T win_visual_abs_lnum(const win_T *wp)
   size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
   linenr_T seg_start = 1;
   linenr_T seg_end = 1;
-  (void)win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
+  win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
   linenr_T local_lnum = MIN(MAX(VIsual.lnum, seg_start), seg_end) - seg_start + 1;
   return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
 }
@@ -5559,7 +5559,7 @@ bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linen
     buf_T *cur_buf = wp->w_segments[i].ws_buf;
     linenr_T seg_start = 1;
     linenr_T seg_end = 1;
-    (void)win_segment_lnum_bounds(wp, i, &seg_start, &seg_end);
+    win_segment_lnum_bounds(wp, i, &seg_start, &seg_end);
     linenr_T line_count = MAX(seg_end - seg_start + 1, 1);
     linenr_T end = start + line_count - 1;
     if (lnum >= start && lnum <= end) {
@@ -5624,18 +5624,12 @@ bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum)
   return true;
 }
 
-void win_set_visual_cursor(win_T *wp)
-{
-  VIsual = wp->w_cursor;
-}
-
 void win_clear_segments(win_T *wp)
 {
   xfree(wp->w_segments);
   wp->w_segments = NULL;
   wp->w_segment_count = 0;
   wp->w_cursor_seg = 0;
-  wp->w_visual_seg = 0;
 }
 
 /// @param hidden  allocate a window structure and link it in the window if

@@ -35,20 +35,6 @@ enum {
   LOWEST_WIN_ID = 1000,
 };
 
-bool win_has_segments(const win_T *wp);
-bool win_segment_lnum_bounds(const win_T *wp, size_t seg_idx, linenr_T *start_lnum,
-                             linenr_T *end_lnum);
-linenr_T win_segment_total_lnum(const win_T *wp);
-linenr_T win_cursor_abs_lnum(const win_T *wp);
-linenr_T win_visual_abs_lnum(const win_T *wp);
-bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linenr_T *buf_lnum,
-                              size_t *seg_idx);
-bool win_multibuf_set_buffer_for_lnum(win_T *wp, linenr_T lnum, linenr_T *buf_lnum,
-                                      size_t *seg_idx);
-bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum);
-void win_set_visual_cursor(win_T *wp);
-void win_clear_segments(win_T *wp);
-
 EXTERN int tabpage_move_disallowed INIT( = 0);  ///< moving tabpages around disallowed
 
 #include "window.h.generated.h"

@@ -43,7 +43,6 @@
 #include "nvim/types_defs.h"
 #include "nvim/ui.h"
 #include "nvim/vim_defs.h"
-#include "nvim/window.h"
 
 #define MENUDEPTH   10          // maximum depth of menus
 
@@ -1514,7 +1513,7 @@ void execute_menu(const exarg_T *eap, vimmenu_T *menu, int mode_idx)
       VIsual_active = true;
       VIsual_reselect = true;
       check_cursor(curwin);
-      win_set_visual_cursor(curwin);
+      VIsual = curwin->w_cursor;
       curwin->w_cursor = tpos;
 
       check_cursor(curwin);
