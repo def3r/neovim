@@ -86,8 +86,8 @@ static void multibuf_clear_range_marks(wsegment_T *segments, size_t segment_coun
     if (!segments[i].ws_has_range || segments[i].ws_buf == NULL || segments[i].ws_range_ns == 0) {
       continue;
     }
-    (void)extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_start_id);
-    (void)extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_end_id);
+    extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_start_id);
+    extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_end_id);
   }
 }
 

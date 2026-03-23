@@ -574,7 +574,7 @@ static inline void get_line_number_str(win_T *wp, linenr_T lnum, char *buf, size
     num = lnum;
   } else {
     // 'relativenumber', don't use negative numbers
-    num = abs(lnum - cursor_lnum);
+    num = win_has_segments(wp) ? abs(lnum - cursor_lnum) : abs(get_cursor_rel_lnum(wp, lnum));
     if (num == 0 && wp->w_p_nu && wp->w_p_rnu) {
       // 'number' + 'relativenumber'
       num = lnum;
@@ -692,7 +692,9 @@ static void draw_statuscol(win_T *wp, winlinevars_T *wlv, int virtnum, int col_r
   linenr_T cursor_lnum = win_has_segments(wp) ? win_cursor_abs_lnum(wp) : wp->w_cursor.lnum;
   linenr_T relnum = (virtnum == -wlv->filler_lines || virtnum == 0
                      || virtnum == (wlv->n_virt_below - wlv->filler_lines))
-                    ? abs(lnum - cursor_lnum) : -1;
+                    ? (win_has_segments(wp)
+                       ? abs(lnum - cursor_lnum)
+                       : abs(get_cursor_rel_lnum(wp, lnum))) : -1;
 
   char buf[MAXPATHL];
   // When a buffer's line count has changed, make a best estimate for the full
@@ -1214,7 +1216,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
     advance_color_col(&wlv, vcol_hlc(wlv));
 
     // handle Visual active in this window
-    if (VIsual_active && wp == curwin) {
+    if (VIsual_active && wp->w_buffer == curwin->w_buffer) {
       pos_T *top, *bot;
       linenr_T top_lnum;
       linenr_T bot_lnum;

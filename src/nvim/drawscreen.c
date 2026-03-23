@@ -1498,7 +1498,7 @@ static void win_update_multibuf(win_T *wp)
   wp->w_valid |= VALID_BOTLINE;
   wp->w_viewport_invalid = true;
 
-  (void)win_multibuf_set_cursor_pos(wp, cursor_abs_lnum);
+  win_multibuf_set_cursor_pos(wp, cursor_abs_lnum);
 }
 
 static void win_update(win_T *wp)
@@ -2687,6 +2687,10 @@ void win_draw_end(win_T *wp, schar_T c1, bool draw_margin, int startrow, int end
 /// space is available for window "wp", minus "col".
 int compute_foldcolumn(win_T *wp, int col)
 {
+  if (win_has_segments(wp)) {
+    return 0;
+  }
+
   int fdc = win_fdccol_count(wp);
   int wmw = wp == curwin && p_wmw == 0 ? 1 : (int)p_wmw;
   int n = wp->w_view_width - (col + wmw);

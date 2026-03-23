@@ -77,6 +77,8 @@ typedef uint64_t disptick_T;  // display tick type
 
 typedef struct {
   buf_T *ws_buf;
+
+  // For range based segments
   bool ws_has_range;
   uint32_t ws_range_ns;
   uint32_t ws_start_id;
@@ -1107,6 +1109,7 @@ struct window_S {
 
   buf_T *w_buffer;            ///< buffer we are a window into (used
                               ///< often, keep it the first item!)
+
   wsegment_T *w_segments;     ///< stitched buffer segments for multibuffer windows
   size_t w_segment_count;     ///< number of entries in w_segments
   size_t w_cursor_seg;        ///< active segment for the multibuffer cursor

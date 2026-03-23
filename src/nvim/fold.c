@@ -55,6 +55,7 @@
 #include "nvim/types_defs.h"
 #include "nvim/undo.h"
 #include "nvim/vim_defs.h"
+#include "nvim/window.h"
 
 // local declarations. {{{1
 // typedef fold_T {{{2
@@ -146,6 +147,10 @@ void copyFoldingState(win_T *wp_from, win_T *wp_to)
 /// @return  true if there may be folded lines in window "win".
 int hasAnyFolding(win_T *win)
 {
+  if (win_has_segments(win)) {
+    return false;
+  }
+
   // very simple now, but can become more complex later
   return !win->w_buffer->terminal && win->w_p_fen
          && (!foldmethodIsManual(win) || !GA_EMPTY(&win->w_folds));
