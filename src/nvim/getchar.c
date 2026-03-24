@@ -70,7 +70,6 @@
 #include "nvim/ui.h"
 #include "nvim/undo.h"
 #include "nvim/vim_defs.h"
-#include "nvim/window.h"
 
 /// State for adding bytes to a recording or 'showcmd'.
 typedef struct {

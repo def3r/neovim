@@ -6096,7 +6096,7 @@ static void nv_select(cmdarg_T *cap)
 static void nv_goto(cmdarg_T *cap)
 {
   buf_T *target_buf = curbuf;
-  if (win_has_segments(curwin) && curwin->w_segment_count > 0) {
+  if (win_has_segments(curwin)) {
     size_t seg_idx = MIN(curwin->w_cursor_seg, curwin->w_segment_count - 1);
     if (curwin->w_segments[seg_idx].ws_buf != NULL) {
       target_buf = curwin->w_segments[seg_idx].ws_buf;

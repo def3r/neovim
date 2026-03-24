@@ -2593,7 +2593,7 @@ void cursor_down_inner(win_T *wp, int n, bool skip_conceal)
 int cursor_down(int n, bool upd_topline)
 {
   if (win_has_segments(curwin)) {
-    linenr_T total_lnum = MAX(win_segment_total_lnum(curwin), 1);
+    linenr_T total_lnum = win_segment_total_lnum(curwin);
     linenr_T cursor_abs_lnum = win_cursor_abs_lnum(curwin);
     if (n > 0 && cursor_abs_lnum >= total_lnum) {
       return FAIL;

@@ -95,7 +95,8 @@ static int multibuf_plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *n
 {
   buf_T *buf = NULL;
   linenr_T local_lnum = 0;
-  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, NULL) || buf == NULL) {
+  size_t seg_idx;
+  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &seg_idx) || buf == NULL) {
     if (nextp != NULL) {
       *nextp = lnum;
     }
@@ -116,6 +117,10 @@ static int multibuf_plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *n
 
   linenr_T last_local = local_lnum;
   int n = plines_win_full(wp, local_lnum, &last_local, foldedp, true, false);
+  linenr_T seg_start = 1;
+  if (win_segment_lnum_bounds(wp, seg_idx, &seg_start, NULL) && local_lnum == seg_start) {
+    n++;
+  }
   if (lnum == wp->w_topline) {
     n -= adjust_plines_for_skipcol(wp);
   }
@@ -139,27 +144,10 @@ static int multibuf_rows_from_topline(win_T *wp, linenr_T target_lnum)
 {
   int row = 0;
   linenr_T lnum = wp->w_topline;
-  size_t seg_idx = 0;
-
-  (void)win_resolve_segment_lnum(wp, lnum, NULL, NULL, &seg_idx);
 
   while (lnum < target_lnum && row < wp->w_view_height) {
-    buf_T *buf = NULL;
-    linenr_T local_lnum = 0;
-    size_t line_seg_idx = seg_idx;
-    linenr_T seg_start = 1;
-    if (win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &line_seg_idx)
-        && win_segment_lnum_bounds(wp, line_seg_idx, &seg_start, NULL)
-        && local_lnum == seg_start) {
-      row++;
-      if (row >= wp->w_view_height) {
-        break;
-      }
-    }
-
     linenr_T last = lnum;
     row += multibuf_plines_correct_topline(wp, lnum, &last, true, NULL);
-    seg_idx = line_seg_idx;
     lnum = last + 1;
   }
 
@@ -193,7 +181,7 @@ static linenr_T multibuf_topline_for_cursor(win_T *wp, linenr_T cursor_abs_lnum)
 static void comp_botline(win_T *wp)
 {
   if (win_has_segments(wp)) {
-    linenr_T total = MAX(win_segment_total_lnum(wp), 1);
+    linenr_T total = win_segment_total_lnum(wp);
     linenr_T cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total);
     linenr_T lnum;
     int done;
@@ -389,7 +377,7 @@ static void reset_skipcol(win_T *wp)
 void update_topline(win_T *wp)
 {
   if (win_has_segments(wp)) {
-    linenr_T total = MAX(win_segment_total_lnum(wp), 1);
+    linenr_T total = win_segment_total_lnum(wp);
     linenr_T old_topline = wp->w_topline;
     linenr_T cursor_abs_lnum;
 
@@ -744,7 +732,7 @@ void set_topline(win_T *wp, linenr_T lnum)
 {
   if (win_has_segments(wp)) {
     linenr_T prev_topline = wp->w_topline;
-    linenr_T total = MAX(win_segment_total_lnum(wp), 1);
+    linenr_T total = win_segment_total_lnum(wp);
 
     wp->w_topline = MIN(MAX(lnum, 1), total);
     wp->w_topline_was_set = true;
@@ -2708,7 +2696,7 @@ int pagescroll(Direction dir, int count, bool half)
 {
   if (win_has_segments(curwin)) {
     bool did_move = false;
-    linenr_T total = MAX(win_segment_total_lnum(curwin), 1);
+    linenr_T total = win_segment_total_lnum(curwin);
     linenr_T prev_abs = win_cursor_abs_lnum(curwin);
     colnr_T prev_col = curwin->w_cursor.col;
     colnr_T prev_curswant = curwin->w_curswant;

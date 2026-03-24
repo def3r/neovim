@@ -5466,7 +5466,7 @@ static linenr_T win_segment_span(const win_T *wp, size_t seg_idx)
   if (!win_segment_lnum_bounds(wp, seg_idx, &start, &end)) {
     return 1;
   }
-  return MAX(end - start + 1, 1);
+  return end - start + 1;
 }
 
 static linenr_T win_segment_start_lnum(const win_T *wp, size_t seg_idx)
@@ -5496,18 +5496,23 @@ linenr_T win_segment_total_lnum(const win_T *wp)
   return MAX(total, 1);
 }
 
+static linenr_T win_segment_abs_lnum(const win_T *wp, linenr_T lnum)
+{
+  size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
+  linenr_T seg_start = 1;
+  linenr_T seg_end = 1;
+  win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
+  linenr_T local_lnum = MIN(MAX(lnum, seg_start), seg_end) - seg_start + 1;
+  return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
+}
+
 linenr_T win_cursor_abs_lnum(const win_T *wp)
 {
   if (!win_has_segments(wp)) {
     return wp->w_cursor.lnum;
   }
 
-  size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
-  linenr_T seg_start = 1;
-  linenr_T seg_end = 1;
-  win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
-  linenr_T local_lnum = MIN(MAX(wp->w_cursor.lnum, seg_start), seg_end) - seg_start + 1;
-  return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
+  return win_segment_abs_lnum(wp, wp->w_cursor.lnum);
 }
 
 linenr_T win_visual_abs_lnum(const win_T *wp)
@@ -5516,12 +5521,7 @@ linenr_T win_visual_abs_lnum(const win_T *wp)
     return VIsual.lnum;
   }
 
-  size_t seg_idx = MIN(wp->w_cursor_seg, wp->w_segment_count - 1);
-  linenr_T seg_start = 1;
-  linenr_T seg_end = 1;
-  win_segment_lnum_bounds(wp, seg_idx, &seg_start, &seg_end);
-  linenr_T local_lnum = MIN(MAX(VIsual.lnum, seg_start), seg_end) - seg_start + 1;
-  return win_segment_start_lnum(wp, seg_idx) + local_lnum - 1;
+  return win_segment_abs_lnum(wp, VIsual.lnum);
 }
 
 bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linenr_T *buf_lnum,
@@ -5560,7 +5560,7 @@ bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linen
     linenr_T seg_start = 1;
     linenr_T seg_end = 1;
     win_segment_lnum_bounds(wp, i, &seg_start, &seg_end);
-    linenr_T line_count = MAX(seg_end - seg_start + 1, 1);
+    linenr_T line_count = seg_end - seg_start + 1;
     linenr_T end = start + line_count - 1;
     if (lnum >= start && lnum <= end) {
       if (buf != NULL) {
@@ -5578,30 +5578,6 @@ bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linen
   }
 
   return false;
-}
-
-bool win_multibuf_set_buffer_for_lnum(win_T *wp, linenr_T lnum, linenr_T *buf_lnum, size_t *seg_idx)
-{
-  buf_T *buf = NULL;
-  linenr_T local_lnum = 0;
-  size_t local_seg_idx = 0;
-  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &local_seg_idx)) {
-    return false;
-  }
-
-  wp->w_buffer = buf;
-  wp->w_s = &buf->b_s;
-  if (wp == curwin) {
-    curbuf = buf;
-  }
-
-  if (buf_lnum != NULL) {
-    *buf_lnum = local_lnum;
-  }
-  if (seg_idx != NULL) {
-    *seg_idx = local_seg_idx;
-  }
-  return true;
 }
 
 bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum)

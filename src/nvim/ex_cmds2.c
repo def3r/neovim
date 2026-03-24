@@ -143,22 +143,18 @@ void ex_multibuf(exarg_T *eap)
     arg++;
   }
 
-  bool bracketed = false;
-  if (*arg == '[') {
-    bracketed = true;
-    arg++;
+  kvec_t(multibuf_arg_T) segargs = KV_INITIAL_VALUE;
+
+  if (!ascii_isdigit(*arg)) {
+    emsg(_(e_invarg));
+    goto ex_multibuf_cleanup;
   }
 
-  kvec_t(multibuf_arg_T) segargs = KV_INITIAL_VALUE;
   while (*arg != NUL) {
     while (ascii_iswhite(*arg)) {
       arg++;
     }
 
-    if (bracketed && *arg == ']') {
-      arg++;
-      break;
-    }
     if (*arg == NUL) {
       break;
     }
@@ -206,13 +202,8 @@ void ex_multibuf(exarg_T *eap)
     while (ascii_iswhite(*arg)) {
       arg++;
     }
-    if (*arg == ',') {
-      arg++;
+    if (ascii_isdigit(*arg)) {
       continue;
-    }
-    if (bracketed && *arg == ']') {
-      arg++;
-      break;
     }
     if (*arg == NUL) {
       break;
