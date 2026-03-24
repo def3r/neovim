@@ -838,10 +838,11 @@ void show_cursor_info_later(bool force)
   int state = get_real_state();
   int empty_line = (State & MODE_INSERT) == 0
                    && *ml_get_buf(curwin->w_buffer, curwin->w_cursor.lnum) == NUL;
-  linenr_T cursor_lnum = win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
+  linenr_T cursor_lnum =
+    win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
   linenr_T visual_lnum = win_has_segments(curwin) ? win_visual_abs_lnum(curwin) : VIsual.lnum;
   linenr_T line_count = win_has_segments(curwin) ? win_segment_total_lnum(curwin)
-                                                : curwin->w_buffer->b_ml.ml_line_count;
+                                                 : curwin->w_buffer->b_ml.ml_line_count;
 
   // Only draw when something changed.
   validate_virtcol(curwin);
@@ -1444,7 +1445,8 @@ static void win_update_multibuf(win_T *wp)
         }
 
         char header[IOSIZE];
-        snprintf(header, sizeof(header), "-- [%zu/%zu] %s --", seg_idx + 1, wp->w_segment_count, name);
+        snprintf(header, sizeof(header), "-- [%zu/%zu] %s --", seg_idx + 1, wp->w_segment_count,
+                 name);
 
         grid_line_start(&wp->w_grid, row);
         int used = grid_line_puts(0, header, -1, header_attr);

@@ -2724,12 +2724,9 @@ int pagescroll(Direction dir, int count, bool half)
                             ? MAX(1, (int)p_window - 2) : get_scroll_overlap(dir));
     }
 
-    linenr_T next_abs = prev_abs;
-    if (dir == FORWARD) {
-      next_abs = MIN(total, prev_abs + move_count);
-    } else {
-      next_abs = MAX((linenr_T)1, prev_abs - move_count);
-    }
+    linenr_T next_abs = (dir == FORWARD) ? MIN(total, prev_abs + move_count) : MAX((linenr_T)1,
+                                                                                   prev_abs -
+                                                                                   move_count);
 
     if (next_abs != prev_abs) {
       did_move = win_multibuf_set_cursor_pos(curwin, next_abs);
@@ -2741,7 +2738,8 @@ int pagescroll(Direction dir, int count, bool half)
       }
     }
 
-    did_move = did_move || prev_col != curwin->w_cursor.col || prev_abs != win_cursor_abs_lnum(curwin);
+    did_move = did_move || prev_col != curwin->w_cursor.col
+               || prev_abs != win_cursor_abs_lnum(curwin);
 
     if (!did_move) {
       beep_flush();

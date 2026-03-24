@@ -5580,8 +5580,7 @@ bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linen
   return false;
 }
 
-bool win_multibuf_set_buffer_for_lnum(win_T *wp, linenr_T lnum, linenr_T *buf_lnum,
-                                      size_t *seg_idx)
+bool win_multibuf_set_buffer_for_lnum(win_T *wp, linenr_T lnum, linenr_T *buf_lnum, size_t *seg_idx)
 {
   buf_T *buf = NULL;
   linenr_T local_lnum = 0;

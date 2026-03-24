@@ -1372,7 +1372,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
   wlv.filler_todo = wlv.filler_lines;
 
   // Cursor line highlighting for 'cursorline' in the current window.
-    if (wp->w_p_cul && wp->w_p_culopt_flags != kOptCuloptFlagNumber
+  if (wp->w_p_cul && wp->w_p_culopt_flags != kOptCuloptFlagNumber
       && logical_lnum == wp->w_cursorline
       // Do not show the cursor line in the text when Visual mode is active,
       // because it's not clear what is selected then.
@@ -2800,8 +2800,8 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
       if (lcs_eol_todo
           && ((area_attr != 0 && wlv.vcol == wlv.fromcol
                && (VIsual_mode != Ctrl_V
-               || logical_lnum == win_visual_abs_lnum(curwin)
-               || logical_lnum == win_cursor_abs_lnum(curwin)))
+                   || logical_lnum == win_visual_abs_lnum(curwin)
+                   || logical_lnum == win_cursor_abs_lnum(curwin)))
               // highlight 'hlsearch' match at end of line
               || prevcol_hl_flag)) {
         int n = 0;

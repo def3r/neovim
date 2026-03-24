@@ -17,7 +17,6 @@
 #include "nvim/lua/executor.h"
 #include "nvim/message.h"
 #include "nvim/move.h"
-#include "nvim/pos_defs.h"
 
 #include "decoration_provider.c.generated.h"
 

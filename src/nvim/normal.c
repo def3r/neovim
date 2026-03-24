@@ -5128,7 +5128,8 @@ static void n_start_visual_mode(int c)
   // Only need to redraw this line, unless still need to redraw an old
   // Visual area (when 'lazyredraw' is set).
   if (curwin->w_redr_type < UPD_INVERTED) {
-    linenr_T cursor_lnum = win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
+    linenr_T cursor_lnum =
+      win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
     curwin->w_old_cursor_lnum = cursor_lnum;
     curwin->w_old_visual_lnum = cursor_lnum;
   }
