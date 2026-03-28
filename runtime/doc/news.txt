@@ -144,6 +144,7 @@ NEW FEATURES                                                    *news-features*
 The following new features were added.
 
 API
+- TODO
 
 • |api-contract| allows existing functions to change return-type from `void => non-void`.
 • |nvim_win_text_height()| can limit the lines checked when a certain
@@ -166,7 +167,6 @@ API
   execute code while nvim is blocking for input.
 • |vim.secure.trust()| accepts `path` for the `allow` action.
 • |nvim_get_chan_info()| includes `exitcode` field for terminal buffers
-- TODO
 
 BUILD
 

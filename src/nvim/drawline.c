@@ -3314,6 +3314,25 @@ static void wlv_put_linebuf(win_T *wp, const winlinevars_T *wlv, int endcol, boo
   grid_put_linebuf(g, row, coloff, startcol, endcol, clear_width, bg_attr, 0, wlv->vcol - 1, flags);
 }
 
+/// Call validate_virtcol() with a cursor position valid for wp->w_buffer.
+/// During multibuffer redraw wp->w_buffer may be temporarily switched to a
+/// segment buffer while wp->w_cursor still points at another segment.
+static void validate_virtcol_drawline(win_T *wp, linenr_T lnum, colnr_T col)
+{
+  linenr_T line_count = wp->w_buffer->b_ml.ml_line_count;
+  if (wp->w_cursor.lnum >= 1 && wp->w_cursor.lnum <= line_count) {
+    validate_virtcol(wp);
+    return;
+  }
+
+  pos_T save_cursor = wp->w_cursor;
+  wp->w_cursor.lnum = lnum;
+  wp->w_cursor.col = col;
+  wp->w_cursor.coladd = 0;
+  validate_virtcol(wp);
+  wp->w_cursor = save_cursor;
+}
+
 static int decor_providers_setup(int rows_to_draw, bool draw_from_line_start, linenr_T lnum,
                                  colnr_T col, win_T *wp)
 {
@@ -3333,7 +3352,7 @@ static int decor_providers_setup(int rows_to_draw, bool draw_from_line_start, li
 
   // Call it here since we need to invalidate the line pointer anyway.
   decor_providers_invoke_line(wp, lnum - 1);
-  validate_virtcol(wp);
+  validate_virtcol_drawline(wp, lnum, col);
 
   return invoke_range_next(wp, lnum, col, rem_vcols + 1);
 }
@@ -3350,11 +3369,11 @@ static int invoke_range_next(win_T *wp, int lnum, colnr_T begin_col, colnr_T col
     int end_col = begin_col + col_off;
     end_col += mb_off_next(line, line + end_col);
     decor_providers_invoke_range(wp, lnum - 1, begin_col, lnum - 1, end_col);
-    validate_virtcol(wp);
+    validate_virtcol_drawline(wp, lnum, begin_col);
     new_col = end_col;
   } else {
     decor_providers_invoke_range(wp, lnum - 1, begin_col, lnum, 0);
-    validate_virtcol(wp);
+    validate_virtcol_drawline(wp, lnum, begin_col);
     new_col = INT_MAX;
   }
 
