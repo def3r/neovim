@@ -150,7 +150,6 @@ static int multibuf_rows_from_topline(win_T *wp, linenr_T target_lnum)
     row += multibuf_plines_correct_topline(wp, lnum, &last, true, NULL);
     lnum = last + 1;
   }
-
   return row;
 }
 
@@ -172,7 +171,6 @@ static linenr_T multibuf_topline_for_cursor(win_T *wp, linenr_T cursor_abs_lnum)
     rows_above += n;
     top = prev;
   }
-
   return top;
 }
 
@@ -180,57 +178,16 @@ static linenr_T multibuf_topline_for_cursor(win_T *wp, linenr_T cursor_abs_lnum)
 // wp->w_topline changed.
 static void comp_botline(win_T *wp)
 {
-  if (win_has_segments(wp)) {
-    linenr_T total = win_segment_total_lnum(wp);
-    linenr_T cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total);
-    linenr_T lnum;
-    int done;
-
-    wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
-
-    check_cursor_moved(wp);
-    if (wp->w_valid & VALID_CROW) {
-      lnum = cursor_abs_lnum;
-      done = wp->w_cline_row;
-    } else {
-      lnum = wp->w_topline;
-      done = 0;
-    }
-
-    for (; lnum <= total; lnum++) {
-      linenr_T last = lnum;
-      bool folded = false;
-      int n = multibuf_plines_correct_topline(wp, lnum, &last, true, &folded);
-      if (lnum <= cursor_abs_lnum && last >= cursor_abs_lnum) {
-        wp->w_cline_row = done;
-        wp->w_cline_height = n;
-        wp->w_cline_folded = folded;
-        redraw_for_cursorline(wp);
-        wp->w_valid |= (VALID_CROW | VALID_CHEIGHT);
-      }
-      if (done + n > wp->w_view_height) {
-        break;
-      }
-      done += n;
-      lnum = last;
-    }
-
-    wp->w_botline = lnum;
-    wp->w_valid |= (VALID_BOTLINE | VALID_BOTLINE_AP);
-    wp->w_viewport_invalid = true;
-    set_empty_rows(wp, done);
-    win_check_anchored_floats(wp);
-    return;
-  }
-
+  linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
   linenr_T lnum;
   int done;
+  bool has_segments = win_has_segments(wp);
 
   // If w_cline_row is valid, start there.
   // Otherwise have to start at w_topline.
   check_cursor_moved(wp);
   if (wp->w_valid & VALID_CROW) {
-    lnum = wp->w_cursor.lnum;
+    lnum = cursor_abs_lnum;
     done = wp->w_cline_row;
   } else {
     lnum = wp->w_topline;
@@ -240,8 +197,9 @@ static void comp_botline(win_T *wp)
   for (; lnum <= wp->w_buffer->b_ml.ml_line_count; lnum++) {
     linenr_T last = lnum;
     bool folded;
-    int n = plines_correct_topline(wp, lnum, &last, true, &folded);
-    if (lnum <= wp->w_cursor.lnum && last >= wp->w_cursor.lnum) {
+    int n = has_segments ? multibuf_plines_correct_topline(wp, lnum, &last, true, &folded)
+                         : plines_correct_topline(wp, lnum, &last, true, &folded);
+    if (lnum <= cursor_abs_lnum && last >= cursor_abs_lnum) {
       wp->w_cline_row = done;
       wp->w_cline_height = n;
       wp->w_cline_folded = folded;
@@ -730,29 +688,15 @@ void changed_window_setting_all(void)
 // Set wp->w_topline to a certain number.
 void set_topline(win_T *wp, linenr_T lnum)
 {
-  if (win_has_segments(wp)) {
-    linenr_T prev_topline = wp->w_topline;
-    linenr_T total = win_segment_total_lnum(wp);
-
-    wp->w_topline = MIN(MAX(lnum, 1), total);
-    wp->w_topline_was_set = true;
-    if (wp->w_topline != prev_topline) {
-      wp->w_topfill = 0;
-    }
-
-    wp->w_valid &= ~(VALID_WROW | VALID_CROW | VALID_BOTLINE | VALID_TOPLINE);
-    redraw_later(wp, UPD_VALID);
-    return;
-  }
-
   linenr_T prev_topline = wp->w_topline;
+  linenr_T total = win_segment_total_lnum(wp);
 
   // go to first of folded lines
   hasFolding(wp, lnum, &lnum, NULL);
   // Approximate the value of w_botline
   wp->w_botline += lnum - wp->w_topline;
-  if (wp->w_botline > wp->w_buffer->b_ml.ml_line_count + 1) {
-    wp->w_botline = wp->w_buffer->b_ml.ml_line_count + 1;
+  if (wp->w_botline > total + 1) {
+    wp->w_botline = total + 1;
   }
   wp->w_topline = lnum;
   wp->w_topline_was_set = true;
@@ -2694,13 +2638,13 @@ static bool scroll_with_sms(Direction dir, int count, int *curscount)
 /// @return  FAIL for failure, OK otherwise.
 int pagescroll(Direction dir, int count, bool half)
 {
-  if (win_has_segments(curwin)) {
-    bool did_move = false;
-    linenr_T total = win_segment_total_lnum(curwin);
-    linenr_T prev_abs = win_cursor_abs_lnum(curwin);
-    colnr_T prev_col = curwin->w_cursor.col;
-    colnr_T prev_curswant = curwin->w_curswant;
+  bool did_move = false;
+  int buflen = win_segment_total_lnum(curwin);
+  colnr_T prev_col = curwin->w_cursor.col;
+  colnr_T prev_curswant = curwin->w_curswant;
+  linenr_T prev_lnum = win_cursor_abs_lnum(curwin);
 
+  if (win_has_segments(curwin)) {
     int move_count;
     if (half) {
       if (count) {
@@ -2712,11 +2656,10 @@ int pagescroll(Direction dir, int count, bool half)
                             ? MAX(1, (int)p_window - 2) : get_scroll_overlap(dir));
     }
 
-    linenr_T next_abs = (dir == FORWARD) ? MIN(total, prev_abs + move_count) : MAX((linenr_T)1,
-                                                                                   prev_abs -
-                                                                                   move_count);
+    linenr_T next_abs = (dir == FORWARD) ? MIN(buflen, prev_lnum + move_count)
+                                         : MAX((linenr_T)1, prev_lnum - move_count);
 
-    if (next_abs != prev_abs) {
+    if (next_abs != prev_lnum) {
       did_move = win_multibuf_set_cursor_pos(curwin, next_abs);
       if (did_move) {
         curwin->w_cursor.col = prev_col;
@@ -2727,7 +2670,7 @@ int pagescroll(Direction dir, int count, bool half)
     }
 
     did_move = did_move || prev_col != curwin->w_cursor.col
-               || prev_abs != win_cursor_abs_lnum(curwin);
+               || prev_lnum != win_cursor_abs_lnum(curwin);
 
     if (!did_move) {
       beep_flush();
@@ -2738,11 +2681,6 @@ int pagescroll(Direction dir, int count, bool half)
     return did_move ? OK : FAIL;
   }
 
-  bool did_move = false;
-  int buflen = curbuf->b_ml.ml_line_count;
-  colnr_T prev_col = curwin->w_cursor.col;
-  colnr_T prev_curswant = curwin->w_curswant;
-  linenr_T prev_lnum = curwin->w_cursor.lnum;
   oparg_T oa = { 0 };
   cmdarg_T ca = { 0 };
   ca.oap = &oa;

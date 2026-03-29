@@ -628,41 +628,32 @@ int update_screen(void)
     // buffer.  Each buffer must only be done once.
     update_window_hl(wp, type >= UPD_NOT_VALID || hl_changed);
 
+    synblock_T *saved_winsyn = wp->w_s;
+    buf_T *buf = wp->w_buffer;
+    size_t segment_count = 1;
     if (win_has_segments(wp)) {
-      synblock_T *saved_winsyn = wp->w_s;
-      for (size_t i = 0; i < wp->w_segment_count; i++) {
-        buf_T *buf = wp->w_segments[i].ws_buf;
-        if (buf == NULL || !buf->b_mod_set) {
-          continue;
-        }
-
-        wp->w_s = &buf->b_s;
-        if (buf->b_mod_tick_syn < display_tick && syntax_present(wp)) {
-          syn_stack_apply_changes(buf);
-          buf->b_mod_tick_syn = display_tick;
-        }
-
-        if (buf->b_mod_tick_decor < display_tick) {
-          decor_providers_invoke_buf(buf);
-          buf->b_mod_tick_decor = display_tick;
-        }
-      }
-      wp->w_s = saved_winsyn;
-    } else {
-      buf_T *buf = wp->w_buffer;
-      if (buf->b_mod_set) {
-        if (buf->b_mod_tick_syn < display_tick
-            && syntax_present(wp)) {
-          syn_stack_apply_changes(buf);
-          buf->b_mod_tick_syn = display_tick;
-        }
-
-        if (buf->b_mod_tick_decor < display_tick) {
-          decor_providers_invoke_buf(buf);
-          buf->b_mod_tick_decor = display_tick;
-        }
-      }
+      buf = wp->w_segments[0].ws_buf;
+      segment_count = wp->w_segment_count;
     }
+    size_t i = 0;
+
+    do {
+      if (!buf->b_mod_set) {
+        continue;
+      }
+      wp->w_s = &buf->b_s;
+      if (buf->b_mod_tick_syn < display_tick
+          && syntax_present(wp)) {
+        syn_stack_apply_changes(buf);
+        buf->b_mod_tick_syn = display_tick;
+      }
+
+      if (buf->b_mod_tick_decor < display_tick) {
+        decor_providers_invoke_buf(buf);
+        buf->b_mod_tick_decor = display_tick;
+      }
+    } while (++i < segment_count && (buf = wp->w_segments[i].ws_buf));
+    wp->w_s = saved_winsyn;
   }
 
   // Go from top to bottom through the windows, redrawing the ones that need it.
@@ -838,11 +829,9 @@ void show_cursor_info_later(bool force)
   int state = get_real_state();
   int empty_line = (State & MODE_INSERT) == 0
                    && *ml_get_buf(curwin->w_buffer, curwin->w_cursor.lnum) == NUL;
-  linenr_T cursor_lnum =
-    win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
-  linenr_T visual_lnum = win_has_segments(curwin) ? win_visual_abs_lnum(curwin) : VIsual.lnum;
-  linenr_T line_count = win_has_segments(curwin) ? win_segment_total_lnum(curwin)
-                                                 : curwin->w_buffer->b_ml.ml_line_count;
+  linenr_T cursor_lnum = win_cursor_abs_lnum(curwin);
+  linenr_T visual_lnum = win_visual_abs_lnum(curwin);
+  linenr_T line_count = win_segment_total_lnum(curwin);
 
   // Only draw when something changed.
   validate_virtcol(curwin);
@@ -1413,11 +1402,11 @@ static void draw_sep_connectors_win(win_T *wp)
 /// bot: from bot_start to last row (when scrolled up)
 static void win_update_multibuf(win_T *wp)
 {
-  const linenr_T total_lnum = MAX(win_segment_total_lnum(wp), 1);
-  const linenr_T cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total_lnum);
+  const linenr_T total_lnum = win_segment_total_lnum(wp);
+  const linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
   buf_T *provider_buf = NULL;
 
-  wp->w_topline = MIN(MAX(wp->w_topline, 1), total_lnum);
+  // wp->w_topline = MIN(MAX(wp->w_topline, 1), total_lnum);
   wp->w_cursorline = cursor_abs_lnum;
 
   spellvars_T zero_spv = { 0 };
@@ -1425,8 +1414,7 @@ static void win_update_multibuf(win_T *wp)
 
   int header_attr = win_hl_attr(wp, HLF_C);
 
-  int row = 0;
-  int idx = 0;
+  int row = 0, idx = 0;
   linenr_T lnum = wp->w_topline;
   while (row < wp->w_view_height && lnum <= total_lnum) {
     linenr_T segment_lnum = 0;
@@ -2984,10 +2972,7 @@ bool win_cursorline_standout(const win_T *wp)
 void win_update_cursorline(win_T *wp, foldinfo_T *foldinfo)
 {
   wp->w_cursorline = win_cursorline_standout(wp) ? win_cursor_abs_lnum(wp) : 0;
-  if (win_has_segments(wp)) {
-    return;
-  }
-  if (wp->w_p_cul) {
+  if (wp->w_p_cul && !win_has_segments(wp)) {
     // Make sure that the cursorline on a closed fold is redrawn
     *foldinfo = fold_info(wp, wp->w_cursor.lnum);
     if (foldinfo->fi_level != 0 && foldinfo->fi_lines > 0) {

@@ -147,12 +147,8 @@ void copyFoldingState(win_T *wp_from, win_T *wp_to)
 /// @return  true if there may be folded lines in window "win".
 int hasAnyFolding(win_T *win)
 {
-  if (win_has_segments(win)) {
-    return false;
-  }
-
   // very simple now, but can become more complex later
-  return !win->w_buffer->terminal && win->w_p_fen
+  return !win->w_buffer->terminal && !win_has_segments(win) && win->w_p_fen
          && (!foldmethodIsManual(win) || !GA_EMPTY(&win->w_folds));
 }
 

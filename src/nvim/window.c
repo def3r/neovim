@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "klib/kvec.h"
+#include "nvim/api/extmark.h"
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/arglist.h"
@@ -32,6 +33,7 @@
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
 #include "nvim/ex_getln.h"
+#include "nvim/extmark.h"
 #include "nvim/file_search.h"
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
@@ -5428,12 +5430,15 @@ bool win_segment_lnum_bounds(const win_T *wp, size_t seg_idx, linenr_T *start_ln
   }
 
   buf_T *buf = wp->w_segments[seg_idx].ws_buf;
-  linenr_T line_count = MAX(buf == NULL ? 0 : buf->b_ml.ml_line_count, 1);
+  if (buf == NULL) {
+    return false;
+  }
+
+  linenr_T line_count = buf->b_ml.ml_line_count;
   linenr_T start = 1;
   linenr_T end = line_count;
 
-  if (buf != NULL && wp->w_segments[seg_idx].ws_has_range
-      && wp->w_segments[seg_idx].ws_range_ns != 0) {
+  if (wp->w_segments[seg_idx].ws_has_range && wp->w_segments[seg_idx].ws_range_ns != 0) {
     MTKey start_mark = marktree_lookup_ns(buf->b_marktree, wp->w_segments[seg_idx].ws_range_ns,
                                           wp->w_segments[seg_idx].ws_start_id, false, NULL);
     MTKey end_mark = marktree_lookup_ns(buf->b_marktree, wp->w_segments[seg_idx].ws_range_ns,
@@ -5456,7 +5461,7 @@ bool win_segment_lnum_bounds(const win_T *wp, size_t seg_idx, linenr_T *start_ln
   if (end_lnum != NULL) {
     *end_lnum = end;
   }
-  return buf != NULL;
+  return true;
 }
 
 static linenr_T win_segment_span(const win_T *wp, size_t seg_idx)
@@ -5483,16 +5488,13 @@ linenr_T win_segment_total_lnum(const win_T *wp)
   if (wp == NULL) {
     return 0;
   }
-
   if (!win_has_segments(wp)) {
     return wp->w_buffer == NULL ? 0 : wp->w_buffer->b_ml.ml_line_count;
   }
-
   linenr_T total = 0;
   for (size_t i = 0; i < wp->w_segment_count; i++) {
     total += win_segment_span(wp, i);
   }
-
   return MAX(total, 1);
 }
 
@@ -5508,39 +5510,20 @@ static linenr_T win_segment_abs_lnum(const win_T *wp, linenr_T lnum)
 
 linenr_T win_cursor_abs_lnum(const win_T *wp)
 {
-  if (!win_has_segments(wp)) {
-    return wp->w_cursor.lnum;
-  }
-
-  return win_segment_abs_lnum(wp, wp->w_cursor.lnum);
+  return win_has_segments(wp) ? win_segment_abs_lnum(wp, wp->w_cursor.lnum) : wp->w_cursor.lnum;
 }
 
 linenr_T win_visual_abs_lnum(const win_T *wp)
 {
-  if (!win_has_segments(wp)) {
-    return VIsual.lnum;
-  }
-
-  return win_segment_abs_lnum(wp, VIsual.lnum);
+  return win_has_segments(wp) ? win_segment_abs_lnum(wp, VIsual.lnum) : VIsual.lnum;
 }
 
 bool win_resolve_segment_lnum(const win_T *wp, linenr_T lnum, buf_T **buf, linenr_T *buf_lnum,
                               size_t *seg_idx)
 {
-  if (buf != NULL) {
-    *buf = NULL;
-  }
-  if (buf_lnum != NULL) {
-    *buf_lnum = 0;
-  }
-  if (seg_idx != NULL) {
-    *seg_idx = 0;
-  }
-
   if (wp == NULL || lnum < 1) {
     return false;
   }
-
   if (!win_has_segments(wp)) {
     if (wp->w_buffer == NULL) {
       return false;
@@ -5589,6 +5572,9 @@ bool win_multibuf_set_cursor_pos(win_T *wp, linenr_T lnum)
     return false;
   }
 
+  if (wp->w_cursor_seg != seg_idx) {
+    end_visual_mode();  // For simplicity lets end visual mode
+  }
   wp->w_cursor_seg = seg_idx;
   wp->w_cursor.lnum = local_lnum;
   wp->w_buffer = buf;
@@ -8004,4 +7990,83 @@ win_T *lastwin_nofloating(void)
     res = res->w_prev;
   }
   return res;
+}
+
+static uint32_t multibuf_range_ns = 0;
+
+uint32_t multibuf_get_range_ns(void)
+{
+  if (multibuf_range_ns == 0) {
+    multibuf_range_ns
+      = (uint32_t)nvim_create_namespace(cstr_as_string("nvim.multibuf.segment.range"));
+  }
+  return multibuf_range_ns;
+}
+
+void multibuf_clear_range_marks(wsegment_T *segments, size_t segment_count)
+{
+  if (segments == NULL || segment_count == 0) {
+    return;
+  }
+  for (size_t i = 0; i < segment_count; i++) {
+    if (!segments[i].ws_has_range || segments[i].ws_buf == NULL || segments[i].ws_range_ns == 0) {
+      continue;
+    }
+    extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_start_id);
+    extmark_del_id(segments[i].ws_buf, segments[i].ws_range_ns, segments[i].ws_end_id);
+  }
+}
+
+wsegment_T *multibuf_set_segment(wsegment_T *segment, int bufnr, bool has_range,
+                                 linenr_T start_lnum, linenr_T end_lnum)
+{
+  buf_T *buf = buflist_findnr(bufnr);
+  if (buf == NULL) {
+    semsg(_(e_buffer_nr_not_found), (int64_t)bufnr);
+    return NULL;
+  }
+  if (segment == NULL) {
+    segment = xcalloc(1, sizeof(wsegment_T));
+  }
+  segment->ws_buf = buf;
+
+  if (has_range) {
+    uint32_t ns = multibuf_get_range_ns();
+    linenr_T line_count = buf->b_ml.ml_line_count;
+    start_lnum = MIN(MAX(start_lnum, 1), line_count);
+    end_lnum = MIN(MAX(end_lnum, start_lnum), line_count);
+
+    uint32_t start_id = 0;
+    uint32_t end_id = 0;
+    extmark_set(buf, ns, &start_id, start_lnum - 1, 0, -1, -1,
+                (DecorInline)DECOR_INLINE_INIT, 0, false, false, true, false, NULL);
+    extmark_set(buf, ns, &end_id, end_lnum - 1, 0, -1, -1,
+                (DecorInline)DECOR_INLINE_INIT, 0, true, false, true, false, NULL);
+
+    segment->ws_has_range = true;
+    segment->ws_range_ns = ns;
+    segment->ws_start_id = start_id;
+    segment->ws_end_id = end_id;
+  }
+  return segment;
+}
+
+void multibuf_from_segments(win_T *wp, wsegment_T *segments, size_t segment_count)
+{
+  multibuf_clear_range_marks(wp->w_segments, wp->w_segment_count);
+  win_clear_segments(wp);
+  wp->w_segments = segments;
+  wp->w_segment_count = segment_count;
+
+  wp->w_cursor_seg = 0;
+  wp->w_cursor.lnum = 1;
+  wp->w_cursor.col = 0;
+  wp->w_cursor.coladd = 0;
+  wp->w_topline = 1;
+  wp->w_topfill = 0;
+  wp->w_leftcol = 0;
+  wp->w_skipcol = 0;
+  win_multibuf_set_cursor_pos(wp, 1);
+
+  changed_window_setting(wp);
 }

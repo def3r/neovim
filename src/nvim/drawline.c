@@ -567,14 +567,14 @@ static inline void get_line_number_str(win_T *wp, linenr_T lnum, char *buf, size
 {
   linenr_T num;
   char *fmt = "%*" PRIdLINENR " ";
-  linenr_T cursor_lnum = win_has_segments(wp) ? win_cursor_abs_lnum(wp) : wp->w_cursor.lnum;
 
   if (wp->w_p_nu && !wp->w_p_rnu) {
     // 'number' + 'norelativenumber'
     num = lnum;
   } else {
     // 'relativenumber', don't use negative numbers
-    num = win_has_segments(wp) ? abs(lnum - cursor_lnum) : abs(get_cursor_rel_lnum(wp, lnum));
+    num = win_has_segments(wp) ? abs(lnum - win_cursor_abs_lnum(wp))
+                               : abs(get_cursor_rel_lnum(wp, lnum));
     if (num == 0 && wp->w_p_nu && wp->w_p_rnu) {
       // 'number' + 'relativenumber'
       num = lnum;
@@ -627,7 +627,7 @@ static int get_line_number_attr(win_T *wp, winlinevars_T *wlv)
   }
 
   if (wp->w_p_rnu) {
-    linenr_T cursor_lnum = win_has_segments(wp) ? win_cursor_abs_lnum(wp) : wp->w_cursor.lnum;
+    linenr_T cursor_lnum = win_cursor_abs_lnum(wp);
     if (wlv->abs_lnum < cursor_lnum) {
       // Use LineNrAbove
       return hl_combine_attr(win_hl_attr(wp, HLF_LNA), numhl_attr);
@@ -689,11 +689,10 @@ static void draw_statuscol(win_T *wp, winlinevars_T *wlv, int virtnum, int col_r
   // Adjust lnum for filler lines belonging to the line above and set lnum v:vars for first
   // row, first non-filler line, and first filler line belonging to the current line.
   linenr_T lnum = wlv->abs_lnum - ((wlv->n_virt_lines - wlv->filler_todo) < wlv->n_virt_below);
-  linenr_T cursor_lnum = win_has_segments(wp) ? win_cursor_abs_lnum(wp) : wp->w_cursor.lnum;
   linenr_T relnum = (virtnum == -wlv->filler_lines || virtnum == 0
                      || virtnum == (wlv->n_virt_below - wlv->filler_lines))
                     ? (win_has_segments(wp)
-                       ? abs(lnum - cursor_lnum)
+                       ? abs(lnum - win_cursor_abs_lnum(wp))
                        : abs(get_cursor_rel_lnum(wp, lnum))) : -1;
 
   char buf[MAXPATHL];
@@ -1062,15 +1061,16 @@ static int get_rightmost_vcol(win_T *wp, const int *color_cols)
 int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, bool concealed,
              spellvars_T *spv, foldinfo_T foldinfo)
 {
+  const bool has_segments = win_has_segments(wp);
   const linenr_T logical_lnum = lnum;
   const linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
   buf_T *saved_winbuf = wp->w_buffer;
   synblock_T *saved_winsyn = wp->w_s;
   buf_T *saved_curbuf = curbuf;
-  if (win_has_segments(wp)) {
+  if (has_segments) {
     buf_T *segment_buf = NULL;
     linenr_T segment_lnum = 0;
-    if (win_resolve_segment_lnum(wp, logical_lnum, &segment_buf, &segment_lnum, NULL)) {
+    if (win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, NULL)) {
       wp->w_buffer = segment_buf;
       wp->w_s = &segment_buf->b_s;
       if (wp == curwin) {
@@ -1221,8 +1221,8 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
       linenr_T top_lnum;
       linenr_T bot_lnum;
 
-      if (win_has_segments(wp)) {
-        linenr_T cursor_lnum = win_cursor_abs_lnum(curwin);
+      if (has_segments) {
+        linenr_T cursor_lnum = cursor_abs_lnum;
         linenr_T visual_lnum = win_visual_abs_lnum(curwin);
         if (cursor_lnum <= visual_lnum) {
           top = &curwin->w_cursor;
@@ -1258,11 +1258,11 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           wlv.tocol = wp->w_old_cursor_lcol;
         }
       } else {
+        linenr_T lnum2 = has_segments ? logical_lnum : lnum;
         // non-block mode
-        if ((win_has_segments(wp) ? logical_lnum : lnum) > top_lnum
-            && (win_has_segments(wp) ? logical_lnum : lnum) <= bot_lnum) {
+        if (lnum2 > top_lnum && lnum2 <= bot_lnum) {
           wlv.fromcol = 0;
-        } else if ((win_has_segments(wp) ? logical_lnum : lnum) == top_lnum) {
+        } else if (lnum2 == top_lnum) {
           if (VIsual_mode == 'V') {       // linewise
             wlv.fromcol = 0;
           } else {
@@ -1272,7 +1272,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
             }
           }
         }
-        if (VIsual_mode != 'V' && (win_has_segments(wp) ? logical_lnum : lnum) == bot_lnum) {
+        if (VIsual_mode != 'V' && lnum2 == bot_lnum) {
           if (*p_sel == 'e' && bot->col == 0
               && bot->coladd == 0) {
             wlv.fromcol = -10;
@@ -2800,8 +2800,8 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
       if (lcs_eol_todo
           && ((area_attr != 0 && wlv.vcol == wlv.fromcol
                && (VIsual_mode != Ctrl_V
-                   || logical_lnum == win_visual_abs_lnum(curwin)
-                   || logical_lnum == win_cursor_abs_lnum(curwin)))
+                   || logical_lnum == cursor_abs_lnum
+                   || logical_lnum == win_visual_abs_lnum(curwin)))
               // highlight 'hlsearch' match at end of line
               || prevcol_hl_flag)) {
         int n = 0;
@@ -3319,12 +3319,10 @@ static void wlv_put_linebuf(win_T *wp, const winlinevars_T *wlv, int endcol, boo
 /// segment buffer while wp->w_cursor still points at another segment.
 static void validate_virtcol_drawline(win_T *wp, linenr_T lnum, colnr_T col)
 {
-  linenr_T line_count = wp->w_buffer->b_ml.ml_line_count;
-  if (wp->w_cursor.lnum >= 1 && wp->w_cursor.lnum <= line_count) {
+  if (!win_has_segments(wp)) {
     validate_virtcol(wp);
     return;
   }
-
   pos_T save_cursor = wp->w_cursor;
   wp->w_cursor.lnum = lnum;
   wp->w_cursor.col = col;

@@ -5128,8 +5128,7 @@ static void n_start_visual_mode(int c)
   // Only need to redraw this line, unless still need to redraw an old
   // Visual area (when 'lazyredraw' is set).
   if (curwin->w_redr_type < UPD_INVERTED) {
-    linenr_T cursor_lnum =
-      win_has_segments(curwin) ? win_cursor_abs_lnum(curwin) : curwin->w_cursor.lnum;
+    linenr_T cursor_lnum = win_cursor_abs_lnum(curwin);
     curwin->w_old_cursor_lnum = cursor_lnum;
     curwin->w_old_visual_lnum = cursor_lnum;
   }
@@ -6095,21 +6094,10 @@ static void nv_select(cmdarg_T *cap)
 /// cap->arg is true for "G".
 static void nv_goto(cmdarg_T *cap)
 {
-  buf_T *target_buf = curbuf;
-  if (win_has_segments(curwin)) {
-    size_t seg_idx = MIN(curwin->w_cursor_seg, curwin->w_segment_count - 1);
-    if (curwin->w_segments[seg_idx].ws_buf != NULL) {
-      target_buf = curwin->w_segments[seg_idx].ws_buf;
-      curwin->w_buffer = target_buf;
-      curwin->w_s = &target_buf->b_s;
-      curbuf = target_buf;
-    }
-  }
-
   linenr_T lnum;
 
   if (cap->arg) {
-    lnum = target_buf->b_ml.ml_line_count;
+    lnum = curbuf->b_ml.ml_line_count;
   } else {
     lnum = 1;
   }
@@ -6120,7 +6108,7 @@ static void nv_goto(cmdarg_T *cap)
   if (cap->count0 != 0) {
     lnum = cap->count0;
   }
-  lnum = MIN(MAX(lnum, 1), target_buf->b_ml.ml_line_count);
+  lnum = MIN(MAX(lnum, 1), curbuf->b_ml.ml_line_count);
   curwin->w_cursor.lnum = lnum;
   beginline(BL_SOL | BL_FIX);
   if ((fdo_flags & kOptFdoFlagJump) && KeyTyped && cap->oap->op_type == OP_NOP) {
