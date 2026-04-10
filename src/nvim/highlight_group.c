@@ -106,9 +106,13 @@ typedef struct {
                                 ///< (combination of \ref HlAttrFlags)
   RgbValue sg_rgb_fg;           ///< RGB foreground color
   RgbValue sg_rgb_bg;           ///< RGB background color
+  RgbValue sg_rgb_bg_from;      ///< RGB background color for gradient from
+  RgbValue sg_rgb_bg_to;        ///< RGB background color for gradient to
   RgbValue sg_rgb_sp;           ///< RGB special color
   int sg_rgb_fg_idx;            ///< RGB foreground color index
   int sg_rgb_bg_idx;            ///< RGB background color index
+  int sg_rgb_bg_from_idx;       ///< RGB background color index
+  int sg_rgb_bg_to_idx;         ///< RGB background color index
   int sg_rgb_sp_idx;            ///< RGB special color index
 
   int sg_blend;                 ///< blend level (0-100 inclusive), -1 if unset
@@ -1458,6 +1462,18 @@ void do_highlight(const char *line, const bool forceit, const bool init)
         if (is_normal_group) {
           normal_bg = hl_table[idx].sg_rgb_bg;
         }
+      } else if (strcmp(key, "GUIBGFROM") == 0) {
+        did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_from,
+                                   &hl_table[idx].sg_rgb_bg_from_idx);
+        if (is_normal_group) {
+          normal_bg = hl_table[idx].sg_rgb_bg;
+        }
+      } else if (strcmp(key, "GUIBGTO") == 0) {
+        did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_to,
+                                   &hl_table[idx].sg_rgb_bg_to_idx);
+        if (is_normal_group) {
+          normal_bg = hl_table[idx].sg_rgb_bg;
+        }
       } else if (strcmp(key, "GUISP") == 0) {
         did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_sp,
                                    &hl_table[idx].sg_rgb_sp_idx);
@@ -1628,6 +1644,10 @@ static void highlight_list_one(const int id)
                             coloridx_to_name(sgp->sg_rgb_fg_idx, sgp->sg_rgb_fg, hexbuf), "guifg");
   didh = highlight_list_arg(id, didh, LIST_STRING, 0,
                             coloridx_to_name(sgp->sg_rgb_bg_idx, sgp->sg_rgb_bg, hexbuf), "guibg");
+  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
+                            coloridx_to_name(sgp->sg_rgb_bg_from_idx, sgp->sg_rgb_bg_from, hexbuf), "guibgfrom");
+  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
+                            coloridx_to_name(sgp->sg_rgb_bg_to_idx, sgp->sg_rgb_bg_to, hexbuf), "guibgto");
   didh = highlight_list_arg(id, didh, LIST_STRING, 0,
                             coloridx_to_name(sgp->sg_rgb_sp_idx, sgp->sg_rgb_sp, hexbuf), "guisp");
 
