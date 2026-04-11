@@ -199,6 +199,9 @@ typedef struct {
   Union(Integer, String) ctermbg;
   Union(Integer, String) special;
   Union(Integer, String) sp;
+  Boolean has_grad;
+  Union(Integer, String) rgb_bg_from;
+  Union(Integer, String) rgb_bg_to;
   HLGroupID link;
   HLGroupID link_global;
   Boolean fallback;

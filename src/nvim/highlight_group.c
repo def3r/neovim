@@ -104,6 +104,7 @@ typedef struct {
   bool sg_cterm_bold;           ///< bold attr was set for light color for RGB UIs
   int sg_gui;                   ///< "gui=" highlighting attributes
                                 ///< (combination of \ref HlAttrFlags)
+  bool sg_grad;
   RgbValue sg_rgb_fg;           ///< RGB foreground color
   RgbValue sg_rgb_bg;           ///< RGB background color
   RgbValue sg_rgb_bg_from;      ///< RGB background color for gradient from
@@ -1468,7 +1469,9 @@ void do_highlight(const char *line, const bool forceit, const bool init)
         if (is_normal_group) {
           normal_bg = hl_table[idx].sg_rgb_bg;
         }
+        hl_table[idx].sg_grad = true;
       } else if (strcmp(key, "GUIBGTO") == 0) {
+        hl_table[idx].sg_grad = true;
         did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_to,
                                    &hl_table[idx].sg_rgb_bg_to_idx);
         if (is_normal_group) {
@@ -1985,6 +1988,10 @@ static void set_hl_attr(int idx)
   if (sgp->sg_font != NULL) {
     at_en.font = hl_add_font_idx(sgp->sg_font);
   }
+
+  at_en.has_grad = sgp->sg_grad;
+  at_en.rgb_bg_from = sgp->sg_rgb_bg_from;
+  at_en.rgb_bg_to = sgp->sg_rgb_bg_to;
 
   sgp->sg_attr = hl_get_syn_attr(0, idx + 1, at_en);
 

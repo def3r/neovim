@@ -1039,6 +1039,16 @@ void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short
       PUT_C(*hl, short_keys ? "sp" : "special", INTEGER_OBJ(ae.rgb_sp_color));
     }
 
+    if (ae.has_grad) {
+      PUT_C(*hl, "has_grad", BOOLEAN_OBJ(true));
+      if (ae.rgb_bg_from != -1) {
+        PUT_C(*hl, "rgb_bg_from", INTEGER_OBJ(ae.rgb_bg_from));
+      }
+      if (ae.rgb_bg_to != -1) {
+        PUT_C(*hl, "rgb_bg_to", INTEGER_OBJ(ae.rgb_bg_to));
+      }
+    }
+
     if (!short_keys) {
       if (mask & HL_FG_INDEXED) {
         PUT_C(*hl, "fg_indexed", BOOLEAN_OBJ(true));
@@ -1073,6 +1083,9 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
   HlAttrs hlattrs = HLATTRS_INIT;
   int32_t fg = base ? base->rgb_fg_color : -1;
   int32_t bg = base ? base->rgb_bg_color : -1;
+  int32_t bg_from = base ? base->rgb_bg_from : -1;
+  int32_t bg_to = base ? base->rgb_bg_to : -1;
+  bool has_grad = base ? base->has_grad : false;
   int32_t ctermfg = base ? (base->cterm_fg_color == 0 ? -1 : base->cterm_fg_color - 1) : -1;
   int32_t ctermbg = base ? (base->cterm_bg_color == 0 ? -1 : base->cterm_bg_color - 1) : -1;
   int32_t sp = base ? base->rgb_sp_color : -1;
@@ -1149,7 +1162,25 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
     blend = (int)blend0;
   }
 
-  if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, link_global)) {
+  if (HAS_KEY_X(dict, has_grad)) {
+    has_grad = dict->has_grad;
+  }
+
+  if (HAS_KEY_X(dict, rgb_bg_from)) {
+    bg_from = object_to_color(dict->rgb_bg_from, "rgb_bg_from", use_rgb, err);
+    if (ERROR_SET(err)) {
+      return hlattrs;
+    }
+  }
+
+  if (HAS_KEY_X(dict, rgb_bg_to)) {
+    bg_to = object_to_color(dict->rgb_bg_to, "rgb_bg_to", use_rgb, err);
+    if (ERROR_SET(err)) {
+      return hlattrs;
+    }
+  }
+
+  if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, global_link)) {
     if (!link_id) {
       api_set_error(err, kErrorTypeValidation, "Invalid Key: '%s'",
                     HAS_KEY_X(dict, link_global) ? "link_global" : "link");
@@ -1229,6 +1260,9 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
     hlattrs.rgb_bg_color = bg;
     hlattrs.rgb_fg_color = fg;
     hlattrs.rgb_sp_color = sp;
+    hlattrs.rgb_bg_from = bg_from;
+    hlattrs.rgb_bg_to = bg_to;
+    hlattrs.has_grad = has_grad;
     hlattrs.hl_blend = blend;
     hlattrs.cterm_bg_color = ctermbg == -1 ? 0 : (int16_t)(ctermbg + 1);
     hlattrs.cterm_fg_color = ctermfg == -1 ? 0 : (int16_t)(ctermfg + 1);

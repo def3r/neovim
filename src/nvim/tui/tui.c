@@ -722,13 +722,17 @@ static void sigwinch_cb(SignalWatcher *watcher, int signum, void *cbdata)
 
 static bool attrs_differ(TUIData *tui, int id1, int id2, bool rgb)
 {
-  if (id1 == id2) {
-    return false;
-  } else if (id1 < 0 || id2 < 0) {
+  if (id1 < 0 || id2 < 0) {
     return true;
   }
   HlAttrs a1 = kv_A(tui->attrs, (size_t)id1);
   HlAttrs a2 = kv_A(tui->attrs, (size_t)id2);
+
+  if (a1.has_grad || a2.has_grad) {
+    return true;
+  } else if (id1 == id2) {
+    return false;
+  } 
 
   if (a1.url != a2.url) {
     return true;
@@ -760,10 +764,10 @@ static int lerp_rgb(int from, int to, double t)
 
 static void update_attrs(TUIData *tui, int attr_id)
 {
-  // if (!attrs_differ(tui, attr_id, tui->print_attr_id, tui->rgb)) {
-  //   tui->print_attr_id = attr_id;
-  //   return;
-  // }
+  if (!attrs_differ(tui, attr_id, tui->print_attr_id, tui->rgb)) {
+    tui->print_attr_id = attr_id;
+    return;
+  }
   tui->print_attr_id = attr_id;
   HlAttrs attrs = kv_A(tui->attrs, (size_t)attr_id);
   int attr = tui->rgb ? attrs.rgb_ae_attr : attrs.cterm_ae_attr;
@@ -904,12 +908,14 @@ static void update_attrs(TUIData *tui, int attr_id)
     bg = ((attrs.rgb_bg_color != -1)
           ? attrs.rgb_bg_color : tui->clear_attrs.rgb_bg_color);
     if (bg != -1) {
-      int bg2 = lerp_rgb(bg, fg,
-                         tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0);
+      if (attrs.has_grad) {
+        bg = lerp_rgb(attrs.rgb_bg_from, attrs.rgb_bg_to,
+            tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0);
+      }
       terminfo_print_num3(tui, kTerm_set_rgb_background,
-                          (bg2 >> 16) & 0xff,  // red
-                          (bg2 >> 8) & 0xff,   // green
-                          bg2 & 0xff);         // blue
+                          (bg >> 16) & 0xff,  // red
+                          (bg >> 8) & 0xff,   // green
+                          bg & 0xff);         // blue
     }
   } else {
     bg = (attrs.cterm_bg_color
@@ -1110,12 +1116,12 @@ static void print_spaces(TUIData *tui, int width, int attr)
   UGrid *grid = &tui->grid;
   size_t left = (size_t)width;
 
-    for (int i = 0; i < width; i++) {
-      update_attrs(tui, attr);  // re-emit color for this col
-      out(tui, " ", 1);
-      grid->col++;
-    }
-    return;
+    // for (int i = 0; i < width; i++) {
+    //   update_attrs(tui, attr);  // re-emit color for this col
+    //   out(tui, " ", 1);
+    //   grid->col++;
+    // }
+    // return;
 
   // spaces are not a sequence, we can squeeze whatever's left of the buffer
   while (true) {

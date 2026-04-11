@@ -42,10 +42,12 @@ typedef enum {
 typedef struct {
   int32_t rgb_ae_attr, cterm_ae_attr;  ///< HlAttrFlags
   RgbValue rgb_fg_color, rgb_bg_color, rgb_sp_color;
+  RgbValue rgb_bg_from, rgb_bg_to;
   int16_t cterm_fg_color, cterm_bg_color;
   int32_t hl_blend;
   int32_t url;
   int32_t font;
+  bool has_grad;
 } HlAttrs;
 
 #define HLATTRS_INIT (HlAttrs) { \
