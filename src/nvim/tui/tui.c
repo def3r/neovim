@@ -748,12 +748,22 @@ static bool attrs_differ(TUIData *tui, int id1, int id2, bool rgb)
   }
 }
 
+static int lerp_rgb(int from, int to, double t)
+{
+  int fr = (from >> 16) & 0xff, fg = (from >> 8) & 0xff, fb = from & 0xff;
+  int tr = (to   >> 16) & 0xff, tg = (to   >> 8) & 0xff, tb = to   & 0xff;
+  int r = (int)(fr + t * (tr - fr));
+  int g = (int)(fg + t * (tg - fg));
+  int b = (int)(fb + t * (tb - fb));
+  return (r << 16) | (g << 8) | b;
+}
+
 static void update_attrs(TUIData *tui, int attr_id)
 {
-  if (!attrs_differ(tui, attr_id, tui->print_attr_id, tui->rgb)) {
-    tui->print_attr_id = attr_id;
-    return;
-  }
+  // if (!attrs_differ(tui, attr_id, tui->print_attr_id, tui->rgb)) {
+  //   tui->print_attr_id = attr_id;
+  //   return;
+  // }
   tui->print_attr_id = attr_id;
   HlAttrs attrs = kv_A(tui->attrs, (size_t)attr_id);
   int attr = tui->rgb ? attrs.rgb_ae_attr : attrs.cterm_ae_attr;
@@ -894,10 +904,12 @@ static void update_attrs(TUIData *tui, int attr_id)
     bg = ((attrs.rgb_bg_color != -1)
           ? attrs.rgb_bg_color : tui->clear_attrs.rgb_bg_color);
     if (bg != -1) {
+      int bg2 = lerp_rgb(bg, fg,
+                         tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0);
       terminfo_print_num3(tui, kTerm_set_rgb_background,
-                          (bg >> 16) & 0xff,  // red
-                          (bg >> 8) & 0xff,   // green
-                          bg & 0xff);         // blue
+                          (bg2 >> 16) & 0xff,  // red
+                          (bg2 >> 8) & 0xff,   // green
+                          bg2 & 0xff);         // blue
     }
   } else {
     bg = (attrs.cterm_bg_color
@@ -1093,10 +1105,17 @@ safe_move:
   ugrid_goto(grid, row, col);
 }
 
-static void print_spaces(TUIData *tui, int width)
+static void print_spaces(TUIData *tui, int width, int attr)
 {
   UGrid *grid = &tui->grid;
   size_t left = (size_t)width;
+
+    for (int i = 0; i < width; i++) {
+      update_attrs(tui, attr);  // re-emit color for this col
+      out(tui, " ", 1);
+      grid->col++;
+    }
+    return;
 
   // spaces are not a sequence, we can squeeze whatever's left of the buffer
   while (true) {
@@ -1145,7 +1164,7 @@ static void print_cell_at_pos(TUIData *tui, int row, int col, UCell *cell, bool 
     // Clear the two screen cells.
     // If the char is single-width in host terminal it won't change the second cell.
     update_attrs(tui, cell->attr);
-    print_spaces(tui, 2);
+    print_spaces(tui, 2, cell->attr);
     cursor_goto(tui, row, col);
   }
 
@@ -1194,7 +1213,7 @@ static void clear_region(TUIData *tui, int top, int bot, int left, int right, in
       } else if (tui->can_erase_chars && tui->can_clear_attr) {
         terminfo_print_num1(tui, kTerm_erase_chars, width);
       } else {
-        print_spaces(tui, width);
+        print_spaces(tui, width, attr_id);
       }
     }
   }
