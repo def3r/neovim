@@ -157,6 +157,7 @@ error('Cannot require a meta file')
 --- @field has_grad? boolean
 --- @field rgb_bg_from? integer
 --- @field rgb_bg_to? integer
+--- @field rgb_bg_via? integer
 --- @field default? true
 --- @field link? string
 --- @field blend? integer
@@ -169,6 +170,7 @@ error('Cannot require a meta file')
 --- @field has_grad? boolean
 --- @field rgb_bg_from? integer|string
 --- @field rgb_bg_to? integer|string
+--- @field rgb_bg_via? integer|string
 --- @field default? true
 --- @field link? string
 --- @field blend? integer

@@ -109,11 +109,13 @@ typedef struct {
   RgbValue sg_rgb_bg;           ///< RGB background color
   RgbValue sg_rgb_bg_from;      ///< RGB background color for gradient from
   RgbValue sg_rgb_bg_to;        ///< RGB background color for gradient to
+  RgbValue sg_rgb_bg_via;       ///< RGB background color for gradient via
   RgbValue sg_rgb_sp;           ///< RGB special color
   int sg_rgb_fg_idx;            ///< RGB foreground color index
   int sg_rgb_bg_idx;            ///< RGB background color index
   int sg_rgb_bg_from_idx;       ///< RGB background color index
   int sg_rgb_bg_to_idx;         ///< RGB background color index
+  int sg_rgb_bg_via_idx;        ///< RGB background color index
   int sg_rgb_sp_idx;            ///< RGB special color index
 
   int sg_blend;                 ///< blend level (0-100 inclusive), -1 if unset
@@ -948,7 +950,11 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
 
   g->sg_rgb_fg = attrs.rgb_fg_color;
   g->sg_rgb_bg = attrs.rgb_bg_color;
+  g->sg_rgb_bg_from = attrs.rgb_bg_from;
+  g->sg_rgb_bg_to = attrs.rgb_bg_to;
+  g->sg_rgb_bg_via = attrs.rgb_bg_via;
   g->sg_rgb_sp = attrs.rgb_sp_color;
+  g->sg_grad = attrs.has_grad;
 
   struct {
     int *dest; RgbValue val; Object name;
@@ -957,6 +963,9 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
       HAS_KEY(dict, highlight, fg) ? dict->fg : dict->foreground },
     { &g->sg_rgb_bg_idx, g->sg_rgb_bg,
       HAS_KEY(dict, highlight, bg) ? dict->bg : dict->background },
+    { &g->sg_rgb_bg_from_idx, g->sg_rgb_bg_from, dict->rgb_bg_from },
+    { &g->sg_rgb_bg_to_idx, g->sg_rgb_bg_to, dict->rgb_bg_to },
+    { &g->sg_rgb_bg_via_idx, g->sg_rgb_bg_via, dict->rgb_bg_via },
     { &g->sg_rgb_sp_idx, g->sg_rgb_sp, HAS_KEY(dict, highlight, sp) ? dict->sp : dict->special },
     { NULL, -1, NIL },
   };
@@ -1477,6 +1486,13 @@ void do_highlight(const char *line, const bool forceit, const bool init)
         if (is_normal_group) {
           normal_bg = hl_table[idx].sg_rgb_bg;
         }
+      } else if (strcmp(key, "GUIBGVIA") == 0) {
+        hl_table[idx].sg_grad = true;
+        did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_via,
+                                   &hl_table[idx].sg_rgb_bg_via_idx);
+        if (is_normal_group) {
+          normal_bg = hl_table[idx].sg_rgb_bg;
+        }
       } else if (strcmp(key, "GUISP") == 0) {
         did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_sp,
                                    &hl_table[idx].sg_rgb_sp_idx);
@@ -1595,11 +1611,18 @@ static void highlight_clear(int idx)
   hl_table[idx].sg_cterm_fg = 0;
   hl_table[idx].sg_cterm_bg = 0;
   hl_table[idx].sg_gui = 0;
+  hl_table[idx].sg_grad = false;
   hl_table[idx].sg_rgb_fg = -1;
   hl_table[idx].sg_rgb_bg = -1;
+  hl_table[idx].sg_rgb_bg_from = -1;
+  hl_table[idx].sg_rgb_bg_to = -1;
+  hl_table[idx].sg_rgb_bg_via = -1;
   hl_table[idx].sg_rgb_sp = -1;
   hl_table[idx].sg_rgb_fg_idx = kColorIdxNone;
   hl_table[idx].sg_rgb_bg_idx = kColorIdxNone;
+  hl_table[idx].sg_rgb_bg_from_idx = kColorIdxNone;
+  hl_table[idx].sg_rgb_bg_to_idx = kColorIdxNone;
+  hl_table[idx].sg_rgb_bg_via_idx = kColorIdxNone;
   hl_table[idx].sg_rgb_sp_idx = kColorIdxNone;
   hl_table[idx].sg_blend = -1;
   if (hl_table[idx].sg_font != NULL) {
@@ -1651,6 +1674,8 @@ static void highlight_list_one(const int id)
                             coloridx_to_name(sgp->sg_rgb_bg_from_idx, sgp->sg_rgb_bg_from, hexbuf), "guibgfrom");
   didh = highlight_list_arg(id, didh, LIST_STRING, 0,
                             coloridx_to_name(sgp->sg_rgb_bg_to_idx, sgp->sg_rgb_bg_to, hexbuf), "guibgto");
+  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
+                            coloridx_to_name(sgp->sg_rgb_bg_via_idx, sgp->sg_rgb_bg_via, hexbuf), "guibgvia");
   didh = highlight_list_arg(id, didh, LIST_STRING, 0,
                             coloridx_to_name(sgp->sg_rgb_sp_idx, sgp->sg_rgb_sp, hexbuf), "guisp");
 
@@ -1990,8 +2015,9 @@ static void set_hl_attr(int idx)
   }
 
   at_en.has_grad = sgp->sg_grad;
-  at_en.rgb_bg_from = sgp->sg_rgb_bg_from;
-  at_en.rgb_bg_to = sgp->sg_rgb_bg_to;
+  at_en.rgb_bg_from = sgp->sg_rgb_bg_from_idx != kColorIdxNone ? sgp->sg_rgb_bg_from : -1;
+  at_en.rgb_bg_to = sgp->sg_rgb_bg_to_idx != kColorIdxNone ? sgp->sg_rgb_bg_to : -1;
+  at_en.rgb_bg_via = sgp->sg_rgb_bg_via_idx != kColorIdxNone ? sgp->sg_rgb_bg_via : -1;
 
   sgp->sg_attr = hl_get_syn_attr(0, idx + 1, at_en);
 
@@ -2130,9 +2156,15 @@ static int syn_add_group(const char *name, size_t len)
   CLEAR_POINTER(hlgp);
   hlgp->sg_name = arena_memdupz(&highlight_arena, name, len);
   hlgp->sg_rgb_bg = -1;
+  hlgp->sg_rgb_bg_from = -1;
+  hlgp->sg_rgb_bg_to = -1;
+  hlgp->sg_rgb_bg_via = -1;
   hlgp->sg_rgb_fg = -1;
   hlgp->sg_rgb_sp = -1;
   hlgp->sg_rgb_bg_idx = kColorIdxNone;
+  hlgp->sg_rgb_bg_from_idx = kColorIdxNone;
+  hlgp->sg_rgb_bg_to_idx = kColorIdxNone;
+  hlgp->sg_rgb_bg_via_idx = kColorIdxNone;
   hlgp->sg_rgb_fg_idx = kColorIdxNone;
   hlgp->sg_rgb_sp_idx = kColorIdxNone;
   hlgp->sg_blend = -1;

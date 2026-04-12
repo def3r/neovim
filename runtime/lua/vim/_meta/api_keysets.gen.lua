@@ -332,6 +332,7 @@ error('Cannot require a meta file')
 --- @field has_grad? boolean
 --- @field rgb_bg_from? integer|string
 --- @field rgb_bg_to? integer|string
+--- @field rgb_bg_via? integer|string
 --- @field link? integer|string
 --- @field link_global? integer|string
 --- @field fallback? boolean

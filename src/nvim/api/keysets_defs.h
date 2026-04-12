@@ -202,6 +202,7 @@ typedef struct {
   Boolean has_grad;
   Union(Integer, String) rgb_bg_from;
   Union(Integer, String) rgb_bg_to;
+  Union(Integer, String) rgb_bg_via;
   HLGroupID link;
   HLGroupID link_global;
   Boolean fallback;

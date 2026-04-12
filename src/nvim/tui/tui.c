@@ -762,6 +762,19 @@ static int lerp_rgb(int from, int to, double t)
   return (r << 16) | (g << 8) | b;
 }
 
+static int lerp_rgb3(int from, int via, int to, double t)
+{
+  if (via == -1) {
+    return lerp_rgb(from, to, t);
+  }
+
+  if (t <= 0.5) {
+    return lerp_rgb(from, via, t * 2.0);
+  }
+
+  return lerp_rgb(via, to, (t - 0.5) * 2.0);
+}
+
 static void update_attrs(TUIData *tui, int attr_id)
 {
   if (!attrs_differ(tui, attr_id, tui->print_attr_id, tui->rgb)) {
@@ -909,8 +922,12 @@ static void update_attrs(TUIData *tui, int attr_id)
           ? attrs.rgb_bg_color : tui->clear_attrs.rgb_bg_color);
     if (bg != -1) {
       if (attrs.has_grad) {
-        bg = lerp_rgb(attrs.rgb_bg_from, attrs.rgb_bg_to,
-            tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0);
+        const double t = tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0;
+        if (attrs.rgb_bg_via != -1) {
+          bg = lerp_rgb3(attrs.rgb_bg_from, attrs.rgb_bg_via, attrs.rgb_bg_to, t);
+        } else {
+          bg = lerp_rgb(attrs.rgb_bg_from, attrs.rgb_bg_to, t);
+        }
       }
       terminfo_print_num3(tui, kTerm_set_rgb_background,
                           (bg >> 16) & 0xff,  // red

@@ -42,7 +42,7 @@ typedef enum {
 typedef struct {
   int32_t rgb_ae_attr, cterm_ae_attr;  ///< HlAttrFlags
   RgbValue rgb_fg_color, rgb_bg_color, rgb_sp_color;
-  RgbValue rgb_bg_from, rgb_bg_to;
+  RgbValue rgb_bg_from, rgb_bg_to, rgb_bg_via;
   int16_t cterm_fg_color, cterm_bg_color;
   int32_t hl_blend;
   int32_t url;
@@ -56,6 +56,9 @@ typedef struct {
   .rgb_fg_color = -1, \
   .rgb_bg_color = -1, \
   .rgb_sp_color = -1, \
+  .rgb_bg_from = -1, \
+  .rgb_bg_to = -1, \
+  .rgb_bg_via = -1, \
   .cterm_fg_color = 0, \
   .cterm_bg_color = 0, \
   .hl_blend = -1, \

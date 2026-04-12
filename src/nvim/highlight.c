@@ -1047,6 +1047,9 @@ void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short
       if (ae.rgb_bg_to != -1) {
         PUT_C(*hl, "rgb_bg_to", INTEGER_OBJ(ae.rgb_bg_to));
       }
+      if (ae.rgb_bg_via != -1) {
+        PUT_C(*hl, "rgb_bg_via", INTEGER_OBJ(ae.rgb_bg_via));
+      }
     }
 
     if (!short_keys) {
@@ -1085,7 +1088,9 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
   int32_t bg = base ? base->rgb_bg_color : -1;
   int32_t bg_from = base ? base->rgb_bg_from : -1;
   int32_t bg_to = base ? base->rgb_bg_to : -1;
+  int32_t bg_via = base ? base->rgb_bg_via : -1;
   bool has_grad = base ? base->has_grad : false;
+  bool grad_stop_provided = false;
   int32_t ctermfg = base ? (base->cterm_fg_color == 0 ? -1 : base->cterm_fg_color - 1) : -1;
   int32_t ctermbg = base ? (base->cterm_bg_color == 0 ? -1 : base->cterm_bg_color - 1) : -1;
   int32_t sp = base ? base->rgb_sp_color : -1;
@@ -1167,6 +1172,7 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
   }
 
   if (HAS_KEY_X(dict, rgb_bg_from)) {
+    grad_stop_provided = true;
     bg_from = object_to_color(dict->rgb_bg_from, "rgb_bg_from", use_rgb, err);
     if (ERROR_SET(err)) {
       return hlattrs;
@@ -1174,10 +1180,23 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
   }
 
   if (HAS_KEY_X(dict, rgb_bg_to)) {
+    grad_stop_provided = true;
     bg_to = object_to_color(dict->rgb_bg_to, "rgb_bg_to", use_rgb, err);
     if (ERROR_SET(err)) {
       return hlattrs;
     }
+  }
+
+  if (HAS_KEY_X(dict, rgb_bg_via)) {
+    grad_stop_provided = true;
+    bg_via = object_to_color(dict->rgb_bg_via, "rgb_bg_via", use_rgb, err);
+    if (ERROR_SET(err)) {
+      return hlattrs;
+    }
+  }
+
+  if (!HAS_KEY_X(dict, has_grad) && grad_stop_provided) {
+    has_grad = true;
   }
 
   if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, global_link)) {
@@ -1262,6 +1281,7 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
     hlattrs.rgb_sp_color = sp;
     hlattrs.rgb_bg_from = bg_from;
     hlattrs.rgb_bg_to = bg_to;
+    hlattrs.rgb_bg_via = bg_via;
     hlattrs.has_grad = has_grad;
     hlattrs.hl_blend = blend;
     hlattrs.cterm_bg_color = ctermbg == -1 ? 0 : (int16_t)(ctermbg + 1);
