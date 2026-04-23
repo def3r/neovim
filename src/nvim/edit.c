@@ -2517,11 +2517,19 @@ void cursor_up_inner(win_T *wp, linenr_T n, bool skip_conceal)
 /// @param upd_topline  When true: update topline
 int cursor_up(linenr_T n, bool upd_topline)
 {
+  linenr_T cursor_abs_lnum = win_cursor_abs_lnum(curwin);
+
   // This fails if the cursor is already in the first line.
-  if (n > 0 && curwin->w_cursor.lnum <= 1) {
+  if (n > 0 && cursor_abs_lnum <= 1) {
     return FAIL;
   }
-  cursor_up_inner(curwin, n, false);
+
+  if (win_has_segments(curwin)) {
+    linenr_T next_lnum = MAX(cursor_abs_lnum - n, 1);
+    win_multibuf_set_cursor_pos(curwin, next_lnum);
+  } else {
+    cursor_up_inner(curwin, n, false);
+  }
 
   // try to advance to the column we want to be at
   coladvance(curwin, curwin->w_curswant);
@@ -2568,13 +2576,24 @@ void cursor_down_inner(win_T *wp, int n, bool skip_conceal)
 /// @param upd_topline  When true: update topline
 int cursor_down(int n, bool upd_topline)
 {
-  linenr_T lnum = curwin->w_cursor.lnum;
+  linenr_T total_lnum = win_segment_total_lnum(curwin);
+  linenr_T cursor_abs_lnum = win_cursor_abs_lnum(curwin);
+
   // This fails if the cursor is already in the last (folded) line.
-  hasFoldingWin(curwin, lnum, NULL, &lnum, true, NULL);
-  if (n > 0 && lnum >= curwin->w_buffer->b_ml.ml_line_count) {
+  hasFoldingWin(curwin, cursor_abs_lnum, NULL, &cursor_abs_lnum, true, NULL);
+  if (n > 0 && cursor_abs_lnum >= total_lnum) {
     return FAIL;
   }
-  cursor_down_inner(curwin, n, false);
+
+  if (win_has_segments(curwin)) {
+    linenr_T next_lnum = cursor_abs_lnum + n;
+    if (next_lnum > total_lnum) {
+      next_lnum = total_lnum;
+    }
+    win_multibuf_set_cursor_pos(curwin, next_lnum);
+  } else {
+    cursor_down_inner(curwin, n, false);
+  }
 
   // try to advance to the column we want to be at
   coladvance(curwin, curwin->w_curswant);

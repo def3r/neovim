@@ -1779,6 +1779,12 @@ M.cmds = {
     func = 'ex_mode',
   },
   {
+    command = 'multibuf',
+    flags = bit.bor(NEEDARG, EXTRA, TRLBAR, NOTRLCOM),
+    addr_type = 'ADDR_NONE',
+    func = 'ex_multibuf',
+  },
+  {
     command = 'mzscheme',
     flags = bit.bor(RANGE, EXTRA, DFLALL, NEEDARG, CMDWIN, LOCK_OK, SBOXOK),
     addr_type = 'ADDR_LINES',

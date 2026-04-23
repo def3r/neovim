@@ -628,8 +628,20 @@ int update_screen(void)
     // buffer.  Each buffer must only be done once.
     update_window_hl(wp, type >= UPD_NOT_VALID || hl_changed);
 
+    synblock_T *saved_winsyn = wp->w_s;
     buf_T *buf = wp->w_buffer;
-    if (buf->b_mod_set) {
+    size_t segment_count = 1;
+    if (win_has_segments(wp)) {
+      buf = wp->w_segments[0].ws_buf;
+      segment_count = wp->w_segment_count;
+    }
+    size_t i = 0;
+
+    do {
+      if (!buf->b_mod_set) {
+        continue;
+      }
+      wp->w_s = &buf->b_s;
       if (buf->b_mod_tick_syn < display_tick
           && syntax_present(wp)) {
         syn_stack_apply_changes(buf);
@@ -640,7 +652,8 @@ int update_screen(void)
         decor_providers_invoke_buf(buf);
         buf->b_mod_tick_decor = display_tick;
       }
-    }
+    } while (++i < segment_count && (buf = wp->w_segments[i].ws_buf));
+    wp->w_s = saved_winsyn;
   }
 
   // Go from top to bottom through the windows, redrawing the ones that need it.
@@ -701,7 +714,16 @@ int update_screen(void)
   // Reset b_mod_set.  Going through all windows is probably faster than going
   // through all buffers (there could be many buffers).
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-    wp->w_buffer->b_mod_set = false;
+    if (win_has_segments(wp)) {
+      for (size_t i = 0; i < wp->w_segment_count; i++) {
+        buf_T *buf = wp->w_segments[i].ws_buf;
+        if (buf != NULL) {
+          buf->b_mod_set = false;
+        }
+      }
+    } else {
+      wp->w_buffer->b_mod_set = false;
+    }
   }
 
   updating_screen = false;
@@ -807,22 +829,25 @@ void show_cursor_info_later(bool force)
   int state = get_real_state();
   int empty_line = (State & MODE_INSERT) == 0
                    && *ml_get_buf(curwin->w_buffer, curwin->w_cursor.lnum) == NUL;
+  linenr_T cursor_lnum = win_cursor_abs_lnum(curwin);
+  linenr_T visual_lnum = win_visual_abs_lnum(curwin);
+  linenr_T line_count = win_segment_total_lnum(curwin);
 
   // Only draw when something changed.
   validate_virtcol(curwin);
   if (force
-      || curwin->w_cursor.lnum != curwin->w_stl_cursor.lnum
+      || cursor_lnum != curwin->w_stl_cursor.lnum
       || curwin->w_cursor.col != curwin->w_stl_cursor.col
       || curwin->w_virtcol != curwin->w_stl_virtcol
       || curwin->w_cursor.coladd != curwin->w_stl_cursor.coladd
       || curwin->w_topline != curwin->w_stl_topline
-      || curwin->w_buffer->b_ml.ml_line_count != curwin->w_stl_line_count
+      || line_count != curwin->w_stl_line_count
       || curwin->w_topfill != curwin->w_stl_topfill
       || empty_line != curwin->w_stl_empty
       || reg_recording != curwin->w_stl_recording
       || state != curwin->w_stl_state
       || (VIsual_active && (VIsual_mode != curwin->w_stl_visual_mode
-                            || VIsual.lnum != curwin->w_stl_visual_pos.lnum
+                            || visual_lnum != curwin->w_stl_visual_pos.lnum
                             || VIsual.col != curwin->w_stl_visual_pos.col
                             || VIsual.coladd != curwin->w_stl_visual_pos.coladd))) {
     if (curwin->w_status_height || global_stl_height()) {
@@ -839,16 +864,18 @@ void show_cursor_info_later(bool force)
   }
 
   curwin->w_stl_cursor = curwin->w_cursor;
+  curwin->w_stl_cursor.lnum = cursor_lnum;
   curwin->w_stl_virtcol = curwin->w_virtcol;
   curwin->w_stl_empty = (char)empty_line;
   curwin->w_stl_topline = curwin->w_topline;
-  curwin->w_stl_line_count = curwin->w_buffer->b_ml.ml_line_count;
+  curwin->w_stl_line_count = line_count;
   curwin->w_stl_topfill = curwin->w_topfill;
   curwin->w_stl_recording = reg_recording;
   curwin->w_stl_state = state;
   if (VIsual_active) {
     curwin->w_stl_visual_mode = VIsual_mode;
     curwin->w_stl_visual_pos = VIsual;
+    curwin->w_stl_visual_pos.lnum = visual_lnum;
   }
 }
 
@@ -1373,6 +1400,97 @@ static void draw_sep_connectors_win(win_T *wp)
 /// top: from first row to top_end (when scrolled down)
 /// mid: from mid_start to mid_end (update inversion or changed text)
 /// bot: from bot_start to last row (when scrolled up)
+static void win_update_multibuf(win_T *wp)
+{
+  const linenr_T total_lnum = win_segment_total_lnum(wp);
+  const linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
+  buf_T *provider_buf = NULL;
+
+  // wp->w_topline = MIN(MAX(wp->w_topline, 1), total_lnum);
+  wp->w_cursorline = cursor_abs_lnum;
+
+  spellvars_T zero_spv = { 0 };
+  foldinfo_T zero_foldinfo = { 0 };
+
+  int header_attr = win_hl_attr(wp, HLF_C);
+
+  int row = 0, idx = 0;
+  linenr_T lnum = wp->w_topline;
+  while (row < wp->w_view_height && lnum <= total_lnum) {
+    linenr_T segment_lnum = 0;
+    size_t seg_idx = 0;
+    int srow = row;
+    buf_T *segment_buf = NULL;
+    if (win_resolve_segment_lnum(wp, lnum, &segment_buf, &segment_lnum, &seg_idx)) {
+      linenr_T segment_start_lnum = 1;
+      win_segment_lnum_bounds(wp, seg_idx, &segment_start_lnum, NULL);
+      if (segment_lnum == segment_start_lnum && row < wp->w_view_height) {
+        const char *name = "[No Name]";
+        if (segment_buf->b_ffname != NULL) {
+          name = (const char *)segment_buf->b_ffname;
+        } else if (segment_buf->b_fname != NULL) {
+          name = (const char *)segment_buf->b_fname;
+        }
+
+        char header[IOSIZE];
+        snprintf(header, sizeof(header), "-- [%zu/%zu] %s --", seg_idx + 1, wp->w_segment_count,
+                 name);
+
+        grid_line_start(&wp->w_grid, row);
+        int used = grid_line_puts(0, header, -1, header_attr);
+        grid_line_fill(used, wp->w_view_width, schar_from_ascii('-'), header_attr);
+        grid_line_flush();
+        row++;
+      }
+
+      wp->w_buffer = segment_buf;
+      wp->w_s = &segment_buf->b_s;
+      if (segment_buf != provider_buf) {
+        provider_buf = segment_buf;
+        decor_redraw_reset(wp, &decor_state);
+        decor_providers_invoke_win_buf(wp, segment_buf, segment_lnum,
+                                       segment_buf->b_ml.ml_line_count);
+      }
+    }
+    int line_srow = row;
+    row = win_line(wp, lnum, line_srow, wp->w_view_height, 0, false, &zero_spv, zero_foldinfo);
+
+    if (idx < wp->w_lines_size) {
+      wp->w_lines[idx].wl_lnum = lnum;
+      wp->w_lines[idx].wl_lastlnum = lnum;
+      wp->w_lines[idx].wl_foldend = lnum;
+      wp->w_lines[idx].wl_folded = false;
+      wp->w_lines[idx].wl_valid = true;
+      wp->w_lines[idx].wl_size = (uint16_t)(row - srow);
+    }
+    idx++;
+    lnum++;
+  }
+
+  wp->w_lines_valid = MIN(idx, wp->w_lines_size);
+  wp->w_botline = lnum;
+  wp->w_empty_rows = 0;
+  wp->w_filler_rows = 0;
+
+  win_draw_end(wp, wp->w_p_fcs_chars.eob, false, row, wp->w_view_height, HLF_EOB);
+  set_empty_rows(wp, row);
+
+  if (wp->w_redr_type >= UPD_REDRAW_TOP) {
+    draw_vsep_win(wp);
+    draw_hsep_win(wp);
+  }
+
+  wp->w_last_cursorline = wp->w_cursorline;
+  wp->w_last_cursor_lnum_rnu = wp->w_p_rnu ? cursor_abs_lnum : 0;
+  wp->w_redr_type = 0;
+  wp->w_old_topfill = wp->w_topfill;
+  wp->w_old_botfill = wp->w_botfill;
+  wp->w_valid |= VALID_BOTLINE;
+  wp->w_viewport_invalid = true;
+
+  win_multibuf_set_cursor_pos(wp, cursor_abs_lnum);
+}
+
 static void win_update(win_T *wp)
 {
   // Return early when the windows would overflow the shrunk terminal window
@@ -1429,6 +1547,11 @@ static void win_update(win_T *wp)
     // draw the vertical separator right of this window
     draw_vsep_win(wp);
     wp->w_redr_type = 0;
+    return;
+  }
+
+  if (win_has_segments(wp)) {
+    win_update_multibuf(wp);
     return;
   }
 
@@ -2551,6 +2674,10 @@ void win_draw_end(win_T *wp, schar_T c1, bool draw_margin, int startrow, int end
 /// space is available for window "wp", minus "col".
 int compute_foldcolumn(win_T *wp, int col)
 {
+  if (win_has_segments(wp)) {
+    return 0;
+  }
+
   int fdc = win_fdccol_count(wp);
   int wmw = wp == curwin && p_wmw == 0 ? 1 : (int)p_wmw;
   int n = wp->w_view_width - (col + wmw);
@@ -2841,8 +2968,8 @@ bool win_cursorline_standout(const win_T *wp)
 /// @param[out] foldinfo foldinfo for the cursor line
 void win_update_cursorline(win_T *wp, foldinfo_T *foldinfo)
 {
-  wp->w_cursorline = win_cursorline_standout(wp) ? wp->w_cursor.lnum : 0;
-  if (wp->w_p_cul) {
+  wp->w_cursorline = win_cursorline_standout(wp) ? win_cursor_abs_lnum(wp) : 0;
+  if (wp->w_p_cul && !win_has_segments(wp)) {
     // Make sure that the cursorline on a closed fold is redrawn
     *foldinfo = fold_info(wp, wp->w_cursor.lnum);
     if (foldinfo->fi_level != 0 && foldinfo->fi_lines > 0) {

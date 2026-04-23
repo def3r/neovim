@@ -6,6 +6,7 @@
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "nvim/arglist.h"
@@ -54,6 +55,13 @@
 static const char e_compiler_not_supported_str[]
   = N_("E666: Compiler not supported: %s");
 
+typedef struct {
+  int bufnr;
+  bool has_range;
+  linenr_T start_lnum;
+  linenr_T end_lnum;
+} multibuf_arg_T;
+
 void ex_ruby(exarg_T *eap)
 {
   script_host_execute("ruby", eap);
@@ -97,6 +105,111 @@ void ex_perlfile(exarg_T *eap)
 void ex_perldo(exarg_T *eap)
 {
   script_host_do_range("perl", eap);
+}
+
+void ex_multibuf(exarg_T *eap)
+{
+  char *arg = eap->arg;
+  while (ascii_iswhite(*arg)) {
+    arg++;
+  }
+
+  kvec_t(multibuf_arg_T) segargs = KV_INITIAL_VALUE;
+
+  if (!ascii_isdigit(*arg)) {
+    emsg(_(e_invarg));
+    goto ex_multibuf_cleanup;
+  }
+
+  while (*arg != NUL) {
+    while (ascii_iswhite(*arg)) {
+      arg++;
+    }
+
+    if (*arg == NUL) {
+      break;
+    }
+
+    char *endptr = NULL;
+    long bufnr = strtol(arg, &endptr, 10);
+    if (endptr == arg || bufnr <= 0 || bufnr > INT_MAX) {
+      emsg(_(e_invarg));
+      goto ex_multibuf_cleanup;
+    }
+    multibuf_arg_T segarg = {
+      .bufnr = (int)bufnr,
+      .has_range = false,
+      .start_lnum = 1,
+      .end_lnum = 1,
+    };
+    arg = endptr;
+
+    if (*arg == ':') {
+      arg++;
+      long start_lnum = strtol(arg, &endptr, 10);
+      if (endptr == arg || start_lnum <= 0 || start_lnum > MAXLNUM) {
+        emsg(_(e_invarg));
+        goto ex_multibuf_cleanup;
+      }
+      arg = endptr;
+      if (*arg != ':') {
+        emsg(_(e_invarg));
+        goto ex_multibuf_cleanup;
+      }
+      arg++;
+      long end_lnum = strtol(arg, &endptr, 10);
+      if (endptr == arg || end_lnum <= 0 || end_lnum > MAXLNUM || end_lnum < start_lnum) {
+        emsg(_(e_invarg));
+        goto ex_multibuf_cleanup;
+      }
+      arg = endptr;
+      segarg.has_range = true;
+      segarg.start_lnum = (linenr_T)start_lnum;
+      segarg.end_lnum = (linenr_T)end_lnum;
+    }
+
+    kv_push(segargs, segarg);
+
+    while (ascii_iswhite(*arg)) {
+      arg++;
+    }
+    if (ascii_isdigit(*arg)) {
+      continue;
+    }
+    if (*arg == NUL) {
+      break;
+    }
+    emsg(_(e_invarg));
+    goto ex_multibuf_cleanup;
+  }
+
+  while (ascii_iswhite(*arg)) {
+    arg++;
+  }
+  if (*arg != NUL) {
+    emsg(_(e_trailing));
+    goto ex_multibuf_cleanup;
+  }
+
+  if (kv_size(segargs) == 0) {
+    emsg(_(e_argreq));
+    goto ex_multibuf_cleanup;
+  }
+
+  wsegment_T *segments = xcalloc(kv_size(segargs), sizeof(*segments));
+  for (size_t i = 0; i < kv_size(segargs); i++) {
+    multibuf_arg_T segarg = kv_A(segargs, i);
+    if (!multibuf_set_segment(&segments[i], segarg.bufnr, segarg.has_range, segarg.start_lnum,
+                              segarg.end_lnum)) {
+      multibuf_clear_range_marks(segments, i);
+      xfree(segments);
+      goto ex_multibuf_cleanup;
+    }
+  }
+  multibuf_from_segments(curwin, segments, kv_size(segargs));
+
+ex_multibuf_cleanup:
+  kv_destroy(segargs);
 }
 
 /// If 'autowrite' option set, try to write the file.

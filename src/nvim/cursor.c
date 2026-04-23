@@ -26,6 +26,7 @@
 #include "nvim/state_defs.h"
 #include "nvim/types_defs.h"
 #include "nvim/vim_defs.h"
+#include "nvim/window.h"
 
 #include "cursor.c.generated.h"
 
@@ -312,15 +313,29 @@ void check_pos(buf_T *buf, pos_T *pos)
 void check_cursor_lnum(win_T *win)
 {
   buf_T *buf = win->w_buffer;
-  if (win->w_cursor.lnum > buf->b_ml.ml_line_count) {
+  linenr_T seg_start = 1;
+  linenr_T seg_end = buf->b_ml.ml_line_count;
+
+  if (win_has_segments(win)) {
+    size_t seg_idx = win->w_cursor_seg;
+    buf = win->w_segments[seg_idx].ws_buf;
+    win_segment_lnum_bounds(win, seg_idx, &seg_start, &seg_end);
+    win->w_buffer = buf;
+    win->w_s = &buf->b_s;
+    if (win == curwin) {
+      curbuf = buf;
+    }
+  }
+
+  if (win->w_cursor.lnum > seg_end) {
     // If there is a closed fold at the end of the file, put the cursor in
     // its first line.  Otherwise in the last line.
     if (!hasFolding(win, buf->b_ml.ml_line_count, &win->w_cursor.lnum, NULL)) {
       win->w_cursor.lnum = buf->b_ml.ml_line_count;
     }
   }
-  if (win->w_cursor.lnum <= 0) {
-    win->w_cursor.lnum = 1;
+  if (win->w_cursor.lnum < seg_start) {
+    win->w_cursor.lnum = seg_start;
   }
 }
 

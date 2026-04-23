@@ -75,6 +75,16 @@ typedef struct wininfo_S WinInfo;
 typedef struct frame_S frame_T;
 typedef uint64_t disptick_T;  // display tick type
 
+typedef struct {
+  buf_T *ws_buf;
+
+  // For range based segments
+  bool ws_has_range;
+  uint32_t ws_range_ns;
+  uint32_t ws_start_id;
+  uint32_t ws_end_id;
+} wsegment_T;
+
 // The taggy struct is used to store the information about a :tag command.
 typedef struct {
   char *tagname;                // tag name
@@ -1103,6 +1113,10 @@ struct window_S {
   buf_T *w_buffer;            ///< buffer we are a window into (used
                               ///< often, keep it the first item!)
 
+  wsegment_T *w_segments;     ///< stitched buffer segments for multibuffer windows
+  size_t w_segment_count;     ///< number of entries in w_segments
+  size_t w_cursor_seg;        ///< active segment for the multibuffer cursor
+
   synblock_T *w_s;                 ///< for :ownsyntax
 
   int w_ns_hl;
@@ -1225,6 +1239,7 @@ struct window_S {
   // valid or need to be recomputed.
   int w_valid;
   pos_T w_valid_cursor;             // last known position of w_cursor, used to adjust w_valid
+  size_t w_valid_cursor_seg;        // last known multibuffer cursor segment
   colnr_T w_valid_leftcol;          // last known w_leftcol
   colnr_T w_valid_skipcol;          // last known w_skipcol
 

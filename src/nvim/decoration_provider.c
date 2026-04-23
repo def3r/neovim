@@ -17,7 +17,6 @@
 #include "nvim/lua/executor.h"
 #include "nvim/message.h"
 #include "nvim/move.h"
-#include "nvim/pos_defs.h"
 
 #include "decoration_provider.c.generated.h"
 
@@ -131,7 +130,7 @@ void decor_providers_start(void)
 /// @param      providers      Decoration providers
 /// @param[out] line_providers Enabled line providers to invoke in win_line
 /// @param[out] err            Provider error
-void decor_providers_invoke_win(win_T *wp)
+void decor_providers_invoke_win_buf(win_T *wp, buf_T *buf, linenr_T topline, linenr_T botline)
 {
   // this might change in the future
   // then we would need decor_state.running_decor_provider just like "on_line" below
@@ -139,9 +138,11 @@ void decor_providers_invoke_win(win_T *wp)
          && decor_state.future_begin == (int)kv_size(decor_state.ranges_i));
 
   if (kv_size(decor_providers) > 0) {
-    validate_botline_win(wp);
+    if (buf == wp->w_buffer && topline == wp->w_topline) {
+      validate_botline_win(wp);
+      botline = MIN(wp->w_botline, buf->b_ml.ml_line_count);
+    }
   }
-  linenr_T botline = MIN(wp->w_botline, wp->w_buffer->b_ml.ml_line_count);
 
   for (size_t i = 0; i < kv_size(decor_providers); i++) {
     DecorProvider *p = &kv_A(decor_providers, i);
@@ -155,9 +156,9 @@ void decor_providers_invoke_win(win_T *wp)
     if (p->state == kDecorProviderActive && p->redraw_win != LUA_NOREF) {
       MAXSIZE_TEMP_ARRAY(args, 4);
       ADD_C(args, WINDOW_OBJ(wp->handle));
-      ADD_C(args, BUFFER_OBJ(wp->w_buffer->handle));
+      ADD_C(args, BUFFER_OBJ(buf->handle));
       // TODO(bfredl): we are not using this, but should be first drawn line?
-      ADD_C(args, INTEGER_OBJ(wp->w_topline - 1));
+      ADD_C(args, INTEGER_OBJ(topline - 1));
       ADD_C(args, INTEGER_OBJ(botline - 1));
       // TODO(bfredl): could skip a call if retval was interpreted like range?
       if (!decor_provider_invoke((int)i, "win", p->redraw_win, args, true, NULL)) {
@@ -165,6 +166,12 @@ void decor_providers_invoke_win(win_T *wp)
       }
     }
   }
+}
+
+void decor_providers_invoke_win(win_T *wp)
+{
+  decor_providers_invoke_win_buf(wp, wp->w_buffer, wp->w_topline,
+                                 MIN(wp->w_botline, wp->w_buffer->b_ml.ml_line_count));
 }
 
 /// For each provider invoke the 'line' callback for a given window row.

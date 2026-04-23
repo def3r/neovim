@@ -89,18 +89,104 @@ int plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *nextp, bool limit
   return n;
 }
 
+static int multibuf_plines_correct_topline(win_T *wp, linenr_T lnum, linenr_T *nextp,
+                                           bool limit_winheight, bool *foldedp)
+{
+  buf_T *buf = NULL;
+  linenr_T local_lnum = 0;
+  size_t seg_idx;
+  if (!win_resolve_segment_lnum(wp, lnum, &buf, &local_lnum, &seg_idx) || buf == NULL) {
+    if (nextp != NULL) {
+      *nextp = lnum;
+    }
+    if (foldedp != NULL) {
+      *foldedp = false;
+    }
+    return 1;
+  }
+
+  buf_T *saved_winbuf = wp->w_buffer;
+  synblock_T *saved_winsyn = wp->w_s;
+  buf_T *saved_curbuf = curbuf;
+  wp->w_buffer = buf;
+  wp->w_s = &buf->b_s;
+  if (wp == curwin) {
+    curbuf = buf;
+  }
+
+  linenr_T last_local = local_lnum;
+  int n = plines_win_full(wp, local_lnum, &last_local, foldedp, true, false);
+  linenr_T seg_start = 1;
+  if (win_segment_lnum_bounds(wp, seg_idx, &seg_start, NULL) && local_lnum == seg_start) {
+    n++;
+  }
+  if (lnum == wp->w_topline) {
+    n -= adjust_plines_for_skipcol(wp);
+  }
+  if (limit_winheight && n > wp->w_view_height) {
+    n = wp->w_view_height;
+  }
+
+  wp->w_buffer = saved_winbuf;
+  wp->w_s = saved_winsyn;
+  if (wp == curwin) {
+    curbuf = saved_curbuf;
+  }
+
+  if (nextp != NULL) {
+    *nextp = lnum + (last_local - local_lnum);
+  }
+  return MAX(n, 1);
+}
+
+static int multibuf_rows_from_topline(win_T *wp, linenr_T target_lnum)
+{
+  int row = 0;
+  linenr_T lnum = wp->w_topline;
+
+  while (lnum < target_lnum && row < wp->w_view_height) {
+    linenr_T last = lnum;
+    row += multibuf_plines_correct_topline(wp, lnum, &last, true, NULL);
+    lnum = last + 1;
+  }
+  return row;
+}
+
+static linenr_T multibuf_topline_for_cursor(win_T *wp, linenr_T cursor_abs_lnum)
+{
+  if (wp->w_view_height <= 0) {
+    return cursor_abs_lnum;
+  }
+
+  linenr_T top = cursor_abs_lnum;
+  int rows_above = 0;
+
+  while (top > 1) {
+    linenr_T prev = top - 1;
+    int n = multibuf_plines_correct_topline(wp, prev, NULL, true, NULL);
+    if (rows_above + n > wp->w_view_height - 1) {
+      break;
+    }
+    rows_above += n;
+    top = prev;
+  }
+  return top;
+}
+
 // Compute wp->w_botline for the current wp->w_topline.  Can be called after
 // wp->w_topline changed.
 static void comp_botline(win_T *wp)
 {
+  linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
   linenr_T lnum;
   int done;
+  bool has_segments = win_has_segments(wp);
 
   // If w_cline_row is valid, start there.
   // Otherwise have to start at w_topline.
   check_cursor_moved(wp);
   if (wp->w_valid & VALID_CROW) {
-    lnum = wp->w_cursor.lnum;
+    lnum = cursor_abs_lnum;
     done = wp->w_cline_row;
   } else {
     lnum = wp->w_topline;
@@ -110,8 +196,9 @@ static void comp_botline(win_T *wp)
   for (; lnum <= wp->w_buffer->b_ml.ml_line_count; lnum++) {
     linenr_T last = lnum;
     bool folded;
-    int n = plines_correct_topline(wp, lnum, &last, true, &folded);
-    if (lnum <= wp->w_cursor.lnum && last >= wp->w_cursor.lnum) {
+    int n = has_segments ? multibuf_plines_correct_topline(wp, lnum, &last, true, &folded)
+                         : plines_correct_topline(wp, lnum, &last, true, &folded);
+    if (lnum <= cursor_abs_lnum && last >= cursor_abs_lnum) {
       wp->w_cline_row = done;
       wp->w_cline_height = n;
       wp->w_cline_folded = folded;
@@ -249,6 +336,36 @@ static void reset_skipcol(win_T *wp)
 // Update wp->w_topline to move the cursor onto the screen.
 void update_topline(win_T *wp)
 {
+  if (win_has_segments(wp)) {
+    linenr_T total = win_segment_total_lnum(wp);
+    linenr_T old_topline = wp->w_topline;
+    linenr_T cursor_abs_lnum;
+
+    check_cursor_lnum(wp);
+    cursor_abs_lnum = MIN(MAX(win_cursor_abs_lnum(wp), 1), total);
+    wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
+    if (cursor_abs_lnum < wp->w_topline) {
+      wp->w_topline = cursor_abs_lnum;
+    }
+
+    if (wp->w_view_height > 0
+        && multibuf_rows_from_topline(wp, cursor_abs_lnum) >= wp->w_view_height) {
+      wp->w_topline = multibuf_topline_for_cursor(wp, cursor_abs_lnum);
+    }
+
+    wp->w_topline = MIN(MAX(wp->w_topline, 1), total);
+    wp->w_topfill = 0;
+    wp->w_valid |= VALID_TOPLINE;
+    wp->w_valid &= ~(VALID_BOTLINE | VALID_BOTLINE_AP | VALID_CROW | VALID_CHEIGHT);
+    wp->w_viewport_invalid = true;
+    win_check_anchored_floats(wp);
+
+    if (wp->w_topline != old_topline) {
+      redraw_later(wp, UPD_VALID);
+    }
+    return;
+  }
+
   bool check_botline = false;
   OptInt *so_ptr = wp->w_p_so >= 0 ? &wp->w_p_so : &p_so;
   OptInt save_so = *so_ptr;
@@ -511,7 +628,10 @@ void update_curswant(void)
 // Check if the cursor has moved.  Set the w_valid flag accordingly.
 void check_cursor_moved(win_T *wp)
 {
-  if (wp->w_cursor.lnum != wp->w_valid_cursor.lnum) {
+  bool cursor_lnum_changed = wp->w_cursor.lnum != wp->w_valid_cursor.lnum;
+  bool cursor_seg_changed = win_has_segments(wp) && wp->w_cursor_seg != wp->w_valid_cursor_seg;
+
+  if (cursor_lnum_changed || cursor_seg_changed) {
     wp->w_valid &= ~(VALID_WROW|VALID_WCOL|VALID_VIRTCOL
                      |VALID_CHEIGHT|VALID_CROW|VALID_TOPLINE);
 
@@ -523,6 +643,7 @@ void check_cursor_moved(win_T *wp)
       changed_window_setting(wp);
     }
     wp->w_valid_cursor = wp->w_cursor;
+    wp->w_valid_cursor_seg = wp->w_cursor_seg;
     wp->w_valid_leftcol = wp->w_leftcol;
     wp->w_valid_skipcol = wp->w_skipcol;
     wp->w_viewport_invalid = true;
@@ -531,6 +652,7 @@ void check_cursor_moved(win_T *wp)
                      |VALID_CHEIGHT|VALID_CROW
                      |VALID_BOTLINE|VALID_BOTLINE_AP);
     wp->w_valid_cursor = wp->w_cursor;
+    wp->w_valid_cursor_seg = wp->w_cursor_seg;
     wp->w_valid_leftcol = wp->w_leftcol;
     wp->w_valid_skipcol = wp->w_skipcol;
   } else if (wp->w_cursor.col != wp->w_valid_cursor.col
@@ -539,6 +661,7 @@ void check_cursor_moved(win_T *wp)
              wp->w_valid_cursor.coladd) {
     wp->w_valid &= ~(VALID_WROW|VALID_WCOL|VALID_VIRTCOL);
     wp->w_valid_cursor.col = wp->w_cursor.col;
+    wp->w_valid_cursor_seg = wp->w_cursor_seg;
     wp->w_valid_leftcol = wp->w_leftcol;
     wp->w_valid_cursor.coladd = wp->w_cursor.coladd;
     wp->w_viewport_invalid = true;
@@ -568,13 +691,14 @@ void changed_window_setting_all(void)
 void set_topline(win_T *wp, linenr_T lnum)
 {
   linenr_T prev_topline = wp->w_topline;
+  linenr_T total = win_segment_total_lnum(wp);
 
   // go to first of folded lines
   hasFolding(wp, lnum, &lnum, NULL);
   // Approximate the value of w_botline
   wp->w_botline += lnum - wp->w_topline;
-  if (wp->w_botline > wp->w_buffer->b_ml.ml_line_count + 1) {
-    wp->w_botline = wp->w_buffer->b_ml.ml_line_count + 1;
+  if (wp->w_botline > total + 1) {
+    wp->w_botline = total + 1;
   }
   wp->w_topline = lnum;
   wp->w_topline_was_set = true;
@@ -656,6 +780,54 @@ void validate_cursor(win_T *wp)
 // of wp->w_topline.
 static void curs_rows(win_T *wp)
 {
+  if (win_has_segments(wp)) {
+    linenr_T cursor_abs_lnum = win_cursor_abs_lnum(wp);
+    linenr_T cursor_local_lnum = 0;
+    size_t cursor_seg_idx = 0;
+    linenr_T cursor_seg_start_lnum = 1;
+    bool cursor_at_seg_start = false;
+    if (win_resolve_segment_lnum(wp, cursor_abs_lnum, NULL, &cursor_local_lnum, &cursor_seg_idx)
+        && win_segment_lnum_bounds(wp, cursor_seg_idx, &cursor_seg_start_lnum, NULL)) {
+      cursor_at_seg_start = cursor_local_lnum == cursor_seg_start_lnum;
+    }
+    wp->w_cline_row = 0;
+    wp->w_cline_height = multibuf_plines_correct_topline(wp, cursor_abs_lnum, NULL, true, NULL);
+    wp->w_cline_folded = false;
+
+    int row = 0;
+    bool found = false;
+    for (int i = 0; i < wp->w_lines_valid && row < wp->w_view_height; i++) {
+      wline_T *wl = &wp->w_lines[i];
+      if (!wl->wl_valid) {
+        row += wl->wl_size;
+        continue;
+      }
+      if (wl->wl_lnum <= cursor_abs_lnum && cursor_abs_lnum <= wl->wl_lastlnum) {
+        wp->w_cline_row = row;
+        wp->w_cline_height = wl->wl_size;
+        if (cursor_at_seg_start) {
+          wp->w_cline_row += 1;
+          wp->w_cline_height = MAX(1, wp->w_cline_height - 1);
+        }
+        found = true;
+        break;
+      }
+      row += wl->wl_size;
+    }
+
+    if (!found) {
+      wp->w_cline_row = multibuf_rows_from_topline(wp, cursor_abs_lnum);
+      if (cursor_at_seg_start) {
+        wp->w_cline_row += 1;
+      }
+      wp->w_cline_row = MAX(0, MIN(wp->w_cline_row, wp->w_view_height - 1));
+    }
+
+    redraw_for_cursorline(wp);
+    wp->w_valid |= VALID_CROW | VALID_CHEIGHT;
+    return;
+  }
+
   // Check if wp->w_lines[].wl_size is invalid
   bool all_invalid = (!redrawing()
                       || wp->w_lines_valid == 0
@@ -2473,10 +2645,48 @@ static bool scroll_with_sms(Direction dir, int count, int *curscount)
 int pagescroll(Direction dir, int count, bool half)
 {
   bool did_move = false;
-  int buflen = curbuf->b_ml.ml_line_count;
+  int buflen = win_segment_total_lnum(curwin);
   colnr_T prev_col = curwin->w_cursor.col;
   colnr_T prev_curswant = curwin->w_curswant;
-  linenr_T prev_lnum = curwin->w_cursor.lnum;
+  linenr_T prev_lnum = win_cursor_abs_lnum(curwin);
+
+  if (win_has_segments(curwin)) {
+    int move_count;
+    if (half) {
+      if (count) {
+        curwin->w_p_scr = MIN(curwin->w_view_height, count);
+      }
+      move_count = MIN(curwin->w_view_height, (int)curwin->w_p_scr);
+    } else {
+      move_count = count * ((ONE_WINDOW && p_window > 0 && p_window < Rows - 1)
+                            ? MAX(1, (int)p_window - 2) : get_scroll_overlap(dir));
+    }
+
+    linenr_T next_abs = (dir == FORWARD) ? MIN(buflen, prev_lnum + move_count)
+                                         : MAX((linenr_T)1, prev_lnum - move_count);
+
+    if (next_abs != prev_lnum) {
+      did_move = win_multibuf_set_cursor_pos(curwin, next_abs);
+      if (did_move) {
+        curwin->w_cursor.col = prev_col;
+        curwin->w_curswant = prev_curswant;
+        coladvance(curwin, curwin->w_curswant);
+        update_topline(curwin);
+      }
+    }
+
+    did_move = did_move || prev_col != curwin->w_cursor.col
+               || prev_lnum != win_cursor_abs_lnum(curwin);
+
+    if (!did_move) {
+      beep_flush();
+    } else if (!curwin->w_p_sms) {
+      beginline(BL_SOL | BL_FIX);
+    }
+
+    return did_move ? OK : FAIL;
+  }
+
   oparg_T oa = { 0 };
   cmdarg_T ca = { 0 };
   ca.oap = &oa;

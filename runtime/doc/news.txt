@@ -104,6 +104,7 @@ NEW FEATURES                                                    *news-features*
 The following new features were added.
 
 API
+- TODO
 
 • |nvim_set_hl()| supports "font" key.
 • |nvim_open_win()| `zindex` controls whether the UI will use a dimmed cursor
