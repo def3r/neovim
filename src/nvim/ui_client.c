@@ -220,6 +220,7 @@ static HlAttrs ui_client_dict2hlattrs(Dict d, bool rgb)
   Dict(highlight) dict = KEYDICT_INIT;
   if (!api_dict_to_keydict(&dict, DictHash(highlight), d, &err)) {
     // TODO(bfredl): log "err"
+    ILOG("SHIT");
     return HLATTRS_INIT;
   }
 

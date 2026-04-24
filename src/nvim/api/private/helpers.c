@@ -21,6 +21,7 @@
 #include "nvim/garray_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_group.h"
+#include "nvim/log.h"
 #include "nvim/lua/executor.h"
 #include "nvim/map_defs.h"
 #include "nvim/mark.h"
@@ -803,6 +804,7 @@ bool api_dict_to_keydict(void *retval, FieldHashfn hashy, Dict dict, Error *err)
     KeySetLink *field = hashy(k.data, k.size);
     if (!field) {
       api_set_error(err, kErrorTypeValidation, "Invalid key: '%.*s'", (int)k.size, k.data);
+      ILOG("Invalid key: '%.*s'", (int)k.size, k.data);
       return false;
     }
 

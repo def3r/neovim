@@ -14,11 +14,13 @@
 #include "nvim/decoration_defs.h"
 #include "nvim/decoration_provider.h"
 #include "nvim/drawscreen.h"
+#include "nvim/garray.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
+#include "nvim/log.h"
 #include "nvim/lua/executor.h"
 #include "nvim/macros_defs.h"
 #include "nvim/map_defs.h"
@@ -149,10 +151,11 @@ int hl_get_syn_attr(int ns_id, int idx, HlAttrs at_en)
   if (at_en.cterm_fg_color != 0 || at_en.cterm_bg_color != 0
       || at_en.rgb_fg_color != -1 || at_en.rgb_bg_color != -1
       || at_en.rgb_sp_color != -1 || at_en.cterm_ae_attr != 0
-      || at_en.rgb_ae_attr != 0 || ns_id != 0) {
+      || at_en.rgb_ae_attr != 0 || ns_id != 0 || at_en.has_grad) {
     return get_attr_entry((HlEntry){ .attr = at_en, .kind = kHlSyntax,
                                      .id1 = idx, .id2 = ns_id });
   }
+  ILOG("FUCK");
   // If all the fields are cleared, clear the attr field back to default value
   return 0;
 }
@@ -1027,6 +1030,7 @@ void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short
   }
 
   if (use_rgb) {
+    ILOG("H2D_GRAD: %d", ae.has_grad);
     if (ae.rgb_fg_color != -1) {
       PUT_C(*hl, short_keys ? "fg" : "foreground", INTEGER_OBJ(ae.rgb_fg_color));
     }
@@ -1040,16 +1044,19 @@ void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short
     }
 
     if (ae.has_grad) {
-      PUT_C(*hl, "has_grad", BOOLEAN_OBJ(true));
-      if (ae.rgb_bg_from != -1) {
-        PUT_C(*hl, "rgb_bg_from", INTEGER_OBJ(ae.rgb_bg_from));
+      PUT_C(*hl, short_keys ? "hg" : "has_grad", BOOLEAN_OBJ(true));
+      MAXSIZE_TEMP_DICT(hlgrad, HLATTRS_DICT_SIZE);
+      PUT_C(hlgrad, "dir", STRING_OBJ(cstr_as_string("h")));
+      Arena arena = ARENA_EMPTY;
+      MAXSIZE_TEMP_ARRAY(stops, 20);
+      for (int i = 0; i < (int)ae.grad.stops.size; i++) {
+        ADD_C(stops, FLOAT_OBJ(ae.grad.stops.items[i].stop));
+        ADD_C(stops, INTEGER_OBJ(ae.grad.stops.items[i].color));
       }
-      if (ae.rgb_bg_to != -1) {
-        PUT_C(*hl, "rgb_bg_to", INTEGER_OBJ(ae.rgb_bg_to));
-      }
-      if (ae.rgb_bg_via != -1) {
-        PUT_C(*hl, "rgb_bg_via", INTEGER_OBJ(ae.rgb_bg_via));
-      }
+      PUT_C(hlgrad, "stops", ARRAY_OBJ(stops));
+      PUT_C(*hl, "grad", DICT_OBJ(hlgrad));
+      ILOG("bg_grad: %s", ae.grad.ser);
+      arena_mem_free(arena_finish(&arena));
     }
 
     if (!short_keys) {
@@ -1069,6 +1076,9 @@ void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short
     if (ae.cterm_bg_color != 0) {
       PUT_C(*hl, short_keys ? "ctermbg" : "background", INTEGER_OBJ(ae.cterm_bg_color - 1));
     }
+
+    ILOG("OOF");
+    // PUT_C(*hl, "has_grad", BOOLEAN_OBJ(false));
   }
 
   if (ae.hl_blend > -1 && (use_rgb || !short_keys)) {
@@ -1086,11 +1096,7 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
   HlAttrs hlattrs = HLATTRS_INIT;
   int32_t fg = base ? base->rgb_fg_color : -1;
   int32_t bg = base ? base->rgb_bg_color : -1;
-  int32_t bg_from = base ? base->rgb_bg_from : -1;
-  int32_t bg_to = base ? base->rgb_bg_to : -1;
-  int32_t bg_via = base ? base->rgb_bg_via : -1;
   bool has_grad = base ? base->has_grad : false;
-  bool grad_stop_provided = false;
   int32_t ctermfg = base ? (base->cterm_fg_color == 0 ? -1 : base->cterm_fg_color - 1) : -1;
   int32_t ctermbg = base ? (base->cterm_bg_color == 0 ? -1 : base->cterm_bg_color - 1) : -1;
   int32_t sp = base ? base->rgb_sp_color : -1;
@@ -1167,39 +1173,7 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
     blend = (int)blend0;
   }
 
-  if (HAS_KEY_X(dict, has_grad)) {
-    has_grad = dict->has_grad;
-  }
-
-  if (HAS_KEY_X(dict, rgb_bg_from)) {
-    grad_stop_provided = true;
-    bg_from = object_to_color(dict->rgb_bg_from, "rgb_bg_from", use_rgb, err);
-    if (ERROR_SET(err)) {
-      return hlattrs;
-    }
-  }
-
-  if (HAS_KEY_X(dict, rgb_bg_to)) {
-    grad_stop_provided = true;
-    bg_to = object_to_color(dict->rgb_bg_to, "rgb_bg_to", use_rgb, err);
-    if (ERROR_SET(err)) {
-      return hlattrs;
-    }
-  }
-
-  if (HAS_KEY_X(dict, rgb_bg_via)) {
-    grad_stop_provided = true;
-    bg_via = object_to_color(dict->rgb_bg_via, "rgb_bg_via", use_rgb, err);
-    if (ERROR_SET(err)) {
-      return hlattrs;
-    }
-  }
-
-  if (!HAS_KEY_X(dict, has_grad) && grad_stop_provided) {
-    has_grad = true;
-  }
-
-  if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, global_link)) {
+  if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, link_global)) {
     if (!link_id) {
       api_set_error(err, kErrorTypeValidation, "Invalid Key: '%s'",
                     HAS_KEY_X(dict, link_global) ? "link_global" : "link");
@@ -1270,6 +1244,31 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
     }
   }
 
+  if (HAS_KEY_X(dict, has_grad)) {
+    has_grad = dict->has_grad;
+    ILOG("has_grad: %d", dict->has_grad);
+    if (has_grad) {
+      ILOG("D2H: grad size %d", (int)dict->grad.size);
+      for (int k = 0; k < (int)dict->grad.size; k++) {
+        char *key = dict->grad.items[k].key.data;
+        Object value = dict->grad.items[k].value;
+        ILOG("D2H: key %s", key);
+        if (strequal(key, "dir")) {
+          hlattrs.grad.dir = value.data.string.data[0];
+          ILOG("D2H: %c", hlattrs.grad.dir);
+        } else if (strequal(key, "stops")) {
+          ILOG("D2H: stops size %d", (int)value.data.array.size);
+          for (int i = 0; i < (int)value.data.array.size; i += 2) {
+            double stop = value.data.array.items[i].data.floating;
+            RgbValue color = value.data.array.items[i+1].data.integer;
+            ILOG("stop %f, color %d", stop, color);
+            kv_push(hlattrs.grad.stops, ((HlGradStops){ .stop = stop, .color = color }));
+          }
+        }
+      }
+    }
+  }
+
   if (use_rgb) {
     // apply gui mask as default for cterm mask
     if (!cterm_mask_provided) {
@@ -1279,10 +1278,8 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs 
     hlattrs.rgb_bg_color = bg;
     hlattrs.rgb_fg_color = fg;
     hlattrs.rgb_sp_color = sp;
-    hlattrs.rgb_bg_from = bg_from;
-    hlattrs.rgb_bg_to = bg_to;
-    hlattrs.rgb_bg_via = bg_via;
     hlattrs.has_grad = has_grad;
+    ILOG("STUCK %d", has_grad);
     hlattrs.hl_blend = blend;
     hlattrs.cterm_bg_color = ctermbg == -1 ? 0 : (int16_t)(ctermbg + 1);
     hlattrs.cterm_fg_color = ctermfg == -1 ? 0 : (int16_t)(ctermfg + 1);

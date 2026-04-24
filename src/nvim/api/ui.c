@@ -26,6 +26,7 @@
 #include "nvim/globals.h"
 #include "nvim/grid.h"
 #include "nvim/highlight.h"
+#include "nvim/log.h"
 #include "nvim/macros_defs.h"
 #include "nvim/main.h"
 #include "nvim/map_defs.h"
@@ -673,7 +674,9 @@ void remote_ui_hl_attr_define(RemoteUI *ui, Integer id, HlAttrs rgb_attrs, HlAtt
   ADD_C(args, INTEGER_OBJ(id));
   MAXSIZE_TEMP_DICT(rgb, HLATTRS_DICT_SIZE);
   MAXSIZE_TEMP_DICT(cterm, HLATTRS_DICT_SIZE);
+  ILOG("NOW TRUE");
   hlattrs2dict(&rgb, NULL, rgb_attrs, true, false);
+  ILOG("NOW FALSE");
   hlattrs2dict(&cterm, NULL, rgb_attrs, false, false);
 
   // URLs are not added in hlattrs2dict since they are used only by UIs and not by the highlight

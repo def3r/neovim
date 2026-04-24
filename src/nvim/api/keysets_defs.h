@@ -172,6 +172,16 @@ typedef struct {
 } Dict(option);
 
 typedef struct {
+  Float stop;
+  Integer color;
+} Dict(HlGradStops);
+
+typedef struct {
+  String dir;
+  ArrayOf(Dict(HlGradStops)) stops;
+} Dict(HlGrad);
+
+typedef struct {
   OptionalKeys is_set__highlight_;
   Boolean altfont;
   Boolean blink;
@@ -199,10 +209,6 @@ typedef struct {
   Union(Integer, String) ctermbg;
   Union(Integer, String) special;
   Union(Integer, String) sp;
-  Boolean has_grad;
-  Union(Integer, String) rgb_bg_from;
-  Union(Integer, String) rgb_bg_to;
-  Union(Integer, String) rgb_bg_via;
   HLGroupID link;
   HLGroupID link_global;
   Boolean fallback;
@@ -213,6 +219,8 @@ typedef struct {
   Boolean update;
   String url;
   String font;
+  Boolean has_grad;
+  DictAs(HlGrad) grad;
 } Dict(highlight);
 
 typedef struct {

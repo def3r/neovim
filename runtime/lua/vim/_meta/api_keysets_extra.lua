@@ -145,6 +145,7 @@ error('Cannot require a meta file')
 --- @field nocombine? true
 --- @field ctermfg? integer
 --- @field ctermbg? integer
+--- @field has_grad? boolean
 
 --- @class vim.api.keyset.hl_info.cterm : vim.api.keyset.hl_info.base
 --- @field foreground? integer
@@ -154,7 +155,6 @@ error('Cannot require a meta file')
 --- @field fg? integer
 --- @field bg? integer
 --- @field sp? integer
---- @field has_grad? boolean
 --- @field rgb_bg_from? integer
 --- @field rgb_bg_to? integer
 --- @field rgb_bg_via? integer
@@ -167,7 +167,6 @@ error('Cannot require a meta file')
 --- @field fg? integer|string
 --- @field bg? integer|string
 --- @field sp? integer|string
---- @field has_grad? boolean
 --- @field rgb_bg_from? integer|string
 --- @field rgb_bg_to? integer|string
 --- @field rgb_bg_via? integer|string

@@ -329,7 +329,6 @@ error('Cannot require a meta file')
 --- @field ctermbg? integer|string
 --- @field special? integer|string
 --- @field sp? integer|string
---- @field has_grad? boolean
 --- @field rgb_bg_from? integer|string
 --- @field rgb_bg_to? integer|string
 --- @field rgb_bg_via? integer|string
@@ -342,6 +341,7 @@ error('Cannot require a meta file')
 --- @field force? boolean
 --- @field update? boolean
 --- @field url? string
+--- @field has_grad? boolean
 --- @field font? string
 
 --- @class vim.api.keyset.highlight_cterm

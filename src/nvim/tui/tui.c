@@ -732,7 +732,7 @@ static bool attrs_differ(TUIData *tui, int id1, int id2, bool rgb)
     return true;
   } else if (id1 == id2) {
     return false;
-  } 
+  }
 
   if (a1.url != a2.url) {
     return true;
@@ -770,6 +770,31 @@ static int lerp_rgb3(int from, int via, int to, double t)
     return lerp_rgb(from, via, t * 2.0);
   }
   return lerp_rgb(via, to, (t - 0.5) * 2.0);
+}
+
+static int lerp_slurp(HlAttrs attrs, double t) {
+  HlGradStops *stops = attrs.grad.stops.items;
+  if (stops == NULL) {
+    abort();
+  }
+  int count = attrs.grad.stops.size;
+  if (count == 1){
+    return stops[0].color;
+  }
+
+  // find the two stops t falls between
+  for (int i = 0; i < count - 1; i++) {
+    HlGradStops a = stops[i];
+    HlGradStops b = stops[i + 1];
+
+    if (t >= a.stop && t <= b.stop) {
+      // remap t from [a.pos, b.pos] → [0.0, 1.0]
+      double local_t = (t - a.stop) / (b.stop - a.stop);
+      ILOG("local_t %f", local_t);
+      return lerp_rgb(a.color, b.color, local_t);
+    }
+  }
+  return stops[count - 1].color;
 }
 
 static void update_attrs(TUIData *tui, int attr_id)
@@ -917,11 +942,15 @@ static void update_attrs(TUIData *tui, int attr_id)
   if (tui->rgb && !(attr & HL_BG_INDEXED)) {
     bg = ((attrs.rgb_bg_color != -1)
           ? attrs.rgb_bg_color : tui->clear_attrs.rgb_bg_color);
+    if (attrs.has_grad) {
+      const double t = tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0;
+      ILOG("t=%.4f col=%d width=%d", t, tui->grid.col, tui->grid.width);
+      // bg = lerp_rgb3(attrs.rgb_bg_from, attrs.rgb_bg_via, attrs.rgb_bg_to, t);
+      bg = lerp_slurp(attrs, t);
+      ILOG("Lerp_slurp: %d, %f", bg, t);
+      ILOG("Lerp_slurp: stops %ld", attrs.grad.stops.size);
+    }
     if (bg != -1) {
-      if (attrs.has_grad) {
-        const double t = tui->grid.width > 1 ? (double)tui->grid.col / (tui->grid.width - 1) : 0.0;
-        bg = lerp_rgb3(attrs.rgb_bg_from, attrs.rgb_bg_via, attrs.rgb_bg_to, t);
-      }
       terminfo_print_num3(tui, kTerm_set_rgb_background,
                           (bg >> 16) & 0xff,  // red
                           (bg >> 8) & 0xff,   // green

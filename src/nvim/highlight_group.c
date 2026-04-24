@@ -34,7 +34,9 @@
 #include "nvim/globals.h"
 #include "nvim/grid_defs.h"
 #include "nvim/highlight.h"
+#include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
+#include "nvim/log.h"
 #include "nvim/lua/executor.h"
 #include "nvim/macros_defs.h"
 #include "nvim/map_defs.h"
@@ -104,7 +106,8 @@ typedef struct {
   bool sg_cterm_bold;           ///< bold attr was set for light color for RGB UIs
   int sg_gui;                   ///< "gui=" highlighting attributes
                                 ///< (combination of \ref HlAttrFlags)
-  bool sg_grad;
+  bool sg_has_grad;
+  HlGrad sg_grad_val;
   RgbValue sg_rgb_fg;           ///< RGB foreground color
   RgbValue sg_rgb_bg;           ///< RGB background color
   RgbValue sg_rgb_bg_from;      ///< RGB background color for gradient from
@@ -950,11 +953,8 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
 
   g->sg_rgb_fg = attrs.rgb_fg_color;
   g->sg_rgb_bg = attrs.rgb_bg_color;
-  g->sg_rgb_bg_from = attrs.rgb_bg_from;
-  g->sg_rgb_bg_to = attrs.rgb_bg_to;
-  g->sg_rgb_bg_via = attrs.rgb_bg_via;
   g->sg_rgb_sp = attrs.rgb_sp_color;
-  g->sg_grad = attrs.has_grad;
+  g->sg_has_grad = attrs.has_grad;
 
   struct {
     int *dest; RgbValue val; Object name;
@@ -963,9 +963,6 @@ void set_hl_group(int id, HlAttrs attrs, Dict(highlight) *dict, int link_id)
       HAS_KEY(dict, highlight, fg) ? dict->fg : dict->foreground },
     { &g->sg_rgb_bg_idx, g->sg_rgb_bg,
       HAS_KEY(dict, highlight, bg) ? dict->bg : dict->background },
-    { &g->sg_rgb_bg_from_idx, g->sg_rgb_bg_from, dict->rgb_bg_from },
-    { &g->sg_rgb_bg_to_idx, g->sg_rgb_bg_to, dict->rgb_bg_to },
-    { &g->sg_rgb_bg_via_idx, g->sg_rgb_bg_via, dict->rgb_bg_via },
     { &g->sg_rgb_sp_idx, g->sg_rgb_sp, HAS_KEY(dict, highlight, sp) ? dict->sp : dict->special },
     { NULL, -1, NIL },
   };
@@ -1047,6 +1044,99 @@ static bool set_gui_color(int idx, bool init, const char *arg, RgbValue *color, 
   }
   RgbValue old_color = *color;
   int old_idx = *color_idx;
+
+  char argcpy[512];
+  size_t siz = MIN(512, strlen(arg));
+  memcpy(argcpy, arg, siz);
+  argcpy[siz] = NUL;
+
+  if (strchr(arg, ',') != NULL) {
+    // ex: #090909, #171717 30%, #FFFFFF
+    char expr[512];
+    xstrlcpy(expr, arg, sizeof(expr));
+
+    bool parse_ok = true;
+    char *p = expr;
+
+    while (parse_ok) {
+      p = skipwhite(p);
+      if (*p == NUL) {
+        break;
+      }
+
+      char *item = p;
+      char *comma = strchr(p, ',');
+      if (comma != NULL) {
+        *comma = NUL;
+        p = comma + 1;
+      } else {
+        p = item + strlen(item);
+      }
+
+      char *stop_part = skiptowhite(item);
+      if (*stop_part != NUL) {
+        *stop_part++ = NUL;
+      }
+      stop_part = skipwhite(stop_part);
+
+      double stop = 0;
+      if (*stop_part != NUL) {
+        char *percent = strchr(stop_part, '%');
+        if (percent == NULL) {
+          parse_ok = false;
+          break;
+        }
+        *percent = NUL;
+        if (*skipwhite(percent + 1) != NUL) {
+          parse_ok = false;
+          break;
+        }
+
+        char *end = NULL;
+        stop = strtod(stop_part, &end);
+        if (end == stop_part || *skipwhite(end) != NUL) {
+          parse_ok = false;
+          break;
+        }
+        stop /= 100;
+      }
+
+      int grad_idx = kColorIdxNone;
+      RgbValue grad_color = name_to_color(item, &grad_idx);
+      if (grad_color < 0) {
+        parse_ok = false;
+        break;
+      }
+
+      kv_push(hl_table[idx].sg_grad_val.stops, ((HlGradStops){.stop = stop, .color = grad_color}));
+    }
+
+    if (!parse_ok || hl_table[idx].sg_grad_val.stops.size == 0) {
+      // For now, silently degrade invalid gradient specs to NONE.
+      // kv_destroy(hl_table[idx].sg_grad_val.stops);
+      *color = -1;
+      *color_idx = kColorIdxNone;
+      return *color != old_color || *color_idx != old_idx;
+    }
+
+    hl_table[idx].sg_has_grad = true;
+    memcpy(hl_table[idx].sg_grad_val.ser, argcpy, siz);
+    ILOG("argcpy: %s", argcpy);
+
+    *color = -1;
+    *color_idx = kColorIdxNone;
+
+    double step = 1.0 / (int)hl_table[idx].sg_grad_val.stops.size;
+    for (int i = 0; i < (int)hl_table[idx].sg_grad_val.stops.size; i++ ) {
+      HlGradStops *stop = &hl_table[idx].sg_grad_val.stops.items[i];
+      if (stop->stop == 0) {
+        stop->stop = i * step;
+      }
+    }
+
+    return true; // Maybe in future compare the gradients
+  }
+
   if (strcmp(arg, "NONE") != 0) {
     *color = name_to_color(arg, color_idx);
   } else {
@@ -1469,27 +1559,7 @@ void do_highlight(const char *line, const bool forceit, const bool init)
       } else if (strcmp(key, "GUIBG") == 0) {
         did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg,
                                    &hl_table[idx].sg_rgb_bg_idx);
-        if (is_normal_group) {
-          normal_bg = hl_table[idx].sg_rgb_bg;
-        }
-      } else if (strcmp(key, "GUIBGFROM") == 0) {
-        did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_from,
-                                   &hl_table[idx].sg_rgb_bg_from_idx);
-        if (is_normal_group) {
-          normal_bg = hl_table[idx].sg_rgb_bg;
-        }
-        hl_table[idx].sg_grad = true;
-      } else if (strcmp(key, "GUIBGTO") == 0) {
-        hl_table[idx].sg_grad = true;
-        did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_to,
-                                   &hl_table[idx].sg_rgb_bg_to_idx);
-        if (is_normal_group) {
-          normal_bg = hl_table[idx].sg_rgb_bg;
-        }
-      } else if (strcmp(key, "GUIBGVIA") == 0) {
-        hl_table[idx].sg_grad = true;
-        did_change = set_gui_color(idx, init, arg, &hl_table[idx].sg_rgb_bg_via,
-                                   &hl_table[idx].sg_rgb_bg_via_idx);
+
         if (is_normal_group) {
           normal_bg = hl_table[idx].sg_rgb_bg;
         }
@@ -1562,11 +1632,15 @@ void do_highlight(const char *line, const bool forceit, const bool init)
     }
     need_highlight_changed = true;
   }
+  ILOG("HL_ATTR: %d", hl_table[idx].sg_has_grad);
 }
 
 #ifdef EXITFREE
 void free_highlight(void)
 {
+  // for (int i = 0; i < highlight_ga.ga_len; i++) {
+  //   ga_clear(&hl_table[i].sg_grad_val.stops);
+  // }
   ga_clear(&highlight_ga);
   map_destroy(cstr_t, &highlight_unames);
   arena_mem_free(arena_finish(&highlight_arena));
@@ -1611,12 +1685,11 @@ static void highlight_clear(int idx)
   hl_table[idx].sg_cterm_fg = 0;
   hl_table[idx].sg_cterm_bg = 0;
   hl_table[idx].sg_gui = 0;
-  hl_table[idx].sg_grad = false;
+  // ga_clear(&hl_table[idx].sg_grad_val.stops);
+  // hl_table[idx].sg_grad_val.dir = 'h';
+  hl_table[idx].sg_has_grad = false;
   hl_table[idx].sg_rgb_fg = -1;
   hl_table[idx].sg_rgb_bg = -1;
-  hl_table[idx].sg_rgb_bg_from = -1;
-  hl_table[idx].sg_rgb_bg_to = -1;
-  hl_table[idx].sg_rgb_bg_via = -1;
   hl_table[idx].sg_rgb_sp = -1;
   hl_table[idx].sg_rgb_fg_idx = kColorIdxNone;
   hl_table[idx].sg_rgb_bg_idx = kColorIdxNone;
@@ -1670,12 +1743,28 @@ static void highlight_list_one(const int id)
                             coloridx_to_name(sgp->sg_rgb_fg_idx, sgp->sg_rgb_fg, hexbuf), "guifg");
   didh = highlight_list_arg(id, didh, LIST_STRING, 0,
                             coloridx_to_name(sgp->sg_rgb_bg_idx, sgp->sg_rgb_bg, hexbuf), "guibg");
-  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
-                            coloridx_to_name(sgp->sg_rgb_bg_from_idx, sgp->sg_rgb_bg_from, hexbuf), "guibgfrom");
-  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
-                            coloridx_to_name(sgp->sg_rgb_bg_to_idx, sgp->sg_rgb_bg_to, hexbuf), "guibgto");
-  didh = highlight_list_arg(id, didh, LIST_STRING, 0,
-                            coloridx_to_name(sgp->sg_rgb_bg_via_idx, sgp->sg_rgb_bg_via, hexbuf), "guibgvia");
+  // if (sgp->sg_grad && sgp->sg_grad_val.stops.ga_len > 0) {
+  //   char gradbuf[512] = { 0 };
+  //   HlGradStops *stops = (HlGradStops *)sgp->sg_grad_val.stops.ga_data;
+  //
+  //   for (int i = 0; i < sgp->sg_grad_val.stops.ga_len; i++) {
+  //     char stopbuf[64];
+  //     if (i > 0) {
+  //       xstrlcat(gradbuf, ", ", sizeof(gradbuf));
+  //     }
+  //
+  //     if (stops[i].stop > 0) {
+  //       snprintf(stopbuf, sizeof(stopbuf), "#%06x %.0f%%", stops[i].color, stops[i].stop);
+  //     } else {
+  //       snprintf(stopbuf, sizeof(stopbuf), "#%06x", stops[i].color);
+  //     }
+  //     xstrlcat(gradbuf, stopbuf, sizeof(gradbuf));
+  //   }
+  //
+  //   didh = highlight_list_arg(id, didh, LIST_STRING, 0, gradbuf, "guibggrad");
+  //   char dirbuf[2] = { sgp->sg_grad_val.dir, NUL };
+  //   didh = highlight_list_arg(id, didh, LIST_STRING, 0, dirbuf, "guibgdir");
+  // }
   didh = highlight_list_arg(id, didh, LIST_STRING, 0,
                             coloridx_to_name(sgp->sg_rgb_sp_idx, sgp->sg_rgb_sp, hexbuf), "guisp");
 
@@ -1714,6 +1803,7 @@ static bool hlgroup2dict(Dict *hl, NS ns_id, int hl_id, Arena *arena)
   ns = ns_id;
   HlAttrs attr = syn_attr2entry(ns_id == 0 ? sgp->sg_attr : ns_get_hl(&ns, hl_id, false,
                                                                       sgp->sg_set));
+  ILOG("Q_ATTR: %d", attr.has_grad);
   *hl = arena_dict(arena, HLATTRS_DICT_SIZE + 1);
   if (attr.rgb_ae_attr & HL_DEFAULT) {
     PUT_C(*hl, "default", BOOLEAN_OBJ(true));
@@ -2014,12 +2104,14 @@ static void set_hl_attr(int idx)
     at_en.font = hl_add_font_idx(sgp->sg_font);
   }
 
-  at_en.has_grad = sgp->sg_grad;
-  at_en.rgb_bg_from = sgp->sg_rgb_bg_from_idx != kColorIdxNone ? sgp->sg_rgb_bg_from : -1;
-  at_en.rgb_bg_to = sgp->sg_rgb_bg_to_idx != kColorIdxNone ? sgp->sg_rgb_bg_to : -1;
-  at_en.rgb_bg_via = sgp->sg_rgb_bg_via_idx != kColorIdxNone ? sgp->sg_rgb_bg_via : -1;
+  at_en.has_grad = sgp->sg_has_grad;
+
+  // New gradient transport: copy the stop vector metadata/data pointer.
+  at_en.grad = sgp->sg_grad_val;
+  ILOG("GraD for %s: %d", sgp->sg_name_u, at_en.has_grad);
 
   sgp->sg_attr = hl_get_syn_attr(0, idx + 1, at_en);
+  ILOG("GraD2 for %d", at_en.has_grad);
 
   // a cursor style uses this syn_id, make sure its attribute is updated.
   if (cursor_mode_uses_syn_id(idx + 1)) {
@@ -2168,6 +2260,8 @@ static int syn_add_group(const char *name, size_t len)
   hlgp->sg_rgb_fg_idx = kColorIdxNone;
   hlgp->sg_rgb_sp_idx = kColorIdxNone;
   hlgp->sg_blend = -1;
+  // hlgp->sg_grad_val.dir = 'h';
+  // ga_init(&hlgp->sg_grad_val.stops, (int)sizeof(HlGradStops), 4);
   hlgp->sg_name_u = arena_memdupz(&highlight_arena, name, len);
   hlgp->sg_parent = scoped_parent;
   // will get set to false by caller if settings are added

@@ -37,17 +37,28 @@ typedef enum {
   HL_GLOBAL        = 0x4000,
 } HlAttrFlags;
 
+typedef struct {
+  double stop;
+  RgbValue color;
+} HlGradStops;
+
+typedef struct {
+  char dir;
+  char ser[512];
+  kvec_t(HlGradStops) stops;
+} HlGrad;
+
 /// Stores a complete highlighting entry, including colors and attributes
 /// for both TUI and GUI.
 typedef struct {
   int32_t rgb_ae_attr, cterm_ae_attr;  ///< HlAttrFlags
   RgbValue rgb_fg_color, rgb_bg_color, rgb_sp_color;
-  RgbValue rgb_bg_from, rgb_bg_to, rgb_bg_via;
   int16_t cterm_fg_color, cterm_bg_color;
   int32_t hl_blend;
   int32_t url;
   int32_t font;
   bool has_grad;
+  HlGrad grad;
 } HlAttrs;
 
 #define HLATTRS_INIT (HlAttrs) { \
@@ -56,14 +67,12 @@ typedef struct {
   .rgb_fg_color = -1, \
   .rgb_bg_color = -1, \
   .rgb_sp_color = -1, \
-  .rgb_bg_from = -1, \
-  .rgb_bg_to = -1, \
-  .rgb_bg_via = -1, \
   .cterm_fg_color = 0, \
   .cterm_bg_color = 0, \
   .hl_blend = -1, \
   .url = -1, \
   .font = -1, \
+  .has_grad = 0, \
 }
 
 /// Values for index in highlight_attr[].
