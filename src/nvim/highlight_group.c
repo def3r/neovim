@@ -110,15 +110,9 @@ typedef struct {
   HlGrad sg_grad_val;
   RgbValue sg_rgb_fg;           ///< RGB foreground color
   RgbValue sg_rgb_bg;           ///< RGB background color
-  RgbValue sg_rgb_bg_from;      ///< RGB background color for gradient from
-  RgbValue sg_rgb_bg_to;        ///< RGB background color for gradient to
-  RgbValue sg_rgb_bg_via;       ///< RGB background color for gradient via
   RgbValue sg_rgb_sp;           ///< RGB special color
   int sg_rgb_fg_idx;            ///< RGB foreground color index
   int sg_rgb_bg_idx;            ///< RGB background color index
-  int sg_rgb_bg_from_idx;       ///< RGB background color index
-  int sg_rgb_bg_to_idx;         ///< RGB background color index
-  int sg_rgb_bg_via_idx;        ///< RGB background color index
   int sg_rgb_sp_idx;            ///< RGB special color index
 
   int sg_blend;                 ///< blend level (0-100 inclusive), -1 if unset
@@ -1693,9 +1687,6 @@ static void highlight_clear(int idx)
   hl_table[idx].sg_rgb_sp = -1;
   hl_table[idx].sg_rgb_fg_idx = kColorIdxNone;
   hl_table[idx].sg_rgb_bg_idx = kColorIdxNone;
-  hl_table[idx].sg_rgb_bg_from_idx = kColorIdxNone;
-  hl_table[idx].sg_rgb_bg_to_idx = kColorIdxNone;
-  hl_table[idx].sg_rgb_bg_via_idx = kColorIdxNone;
   hl_table[idx].sg_rgb_sp_idx = kColorIdxNone;
   hl_table[idx].sg_blend = -1;
   if (hl_table[idx].sg_font != NULL) {
@@ -2248,15 +2239,9 @@ static int syn_add_group(const char *name, size_t len)
   CLEAR_POINTER(hlgp);
   hlgp->sg_name = arena_memdupz(&highlight_arena, name, len);
   hlgp->sg_rgb_bg = -1;
-  hlgp->sg_rgb_bg_from = -1;
-  hlgp->sg_rgb_bg_to = -1;
-  hlgp->sg_rgb_bg_via = -1;
   hlgp->sg_rgb_fg = -1;
   hlgp->sg_rgb_sp = -1;
   hlgp->sg_rgb_bg_idx = kColorIdxNone;
-  hlgp->sg_rgb_bg_from_idx = kColorIdxNone;
-  hlgp->sg_rgb_bg_to_idx = kColorIdxNone;
-  hlgp->sg_rgb_bg_via_idx = kColorIdxNone;
   hlgp->sg_rgb_fg_idx = kColorIdxNone;
   hlgp->sg_rgb_sp_idx = kColorIdxNone;
   hlgp->sg_blend = -1;

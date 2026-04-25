@@ -14,7 +14,6 @@
 #include "nvim/decoration_defs.h"
 #include "nvim/decoration_provider.h"
 #include "nvim/drawscreen.h"
-#include "nvim/garray.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight.h"

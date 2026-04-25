@@ -329,9 +329,6 @@ error('Cannot require a meta file')
 --- @field ctermbg? integer|string
 --- @field special? integer|string
 --- @field sp? integer|string
---- @field rgb_bg_from? integer|string
---- @field rgb_bg_to? integer|string
---- @field rgb_bg_via? integer|string
 --- @field link? integer|string
 --- @field link_global? integer|string
 --- @field fallback? boolean
